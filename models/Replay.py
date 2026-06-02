@@ -149,7 +149,7 @@ class StreamingSoftmax(nn.Module):
         # add new instance to buffer
         self.latent_dict[item_ix_np] = [data_np, label_np]
         self.rehearsal_ixs.append(item_ix_np)
-        self.class_id_to_item_ix_dict[int(label_np)].append(item_ix_np)
+        self.class_id_to_item_ix_dict[int(label_np.item())].append(item_ix_np)
 
         # if buffer is full, randomly replace previous example from class with most samples
         if len(self.rehearsal_ixs) >= self.max_buffer_size:
