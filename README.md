@@ -2,8 +2,8 @@
 
 Code release for the paper:
 
-> **Real-time Continual Learning on Intel Loihi 2**  
-> *Nature Communications* (under review)
+> **Online Continual Learning on Intel Loihi 2 via a Co-designed Spiking Neural Network**  
+> https://arxiv.org/abs/2511.01553
 
 CLP-SNN is a spiking neural network for online continual learning, featuring a self-normalizing three-factor local learning rule, neurogenesis, and metaplasticity — implemented on Intel's Loihi 2 neuromorphic chip and benchmarked against an NVIDIA Jetson Orin Nano GPU.
 
@@ -45,6 +45,29 @@ pip install -r requirements.txt
 ---
 
 ## Data
+
+> **The dataset is NOT included in GitHub's "Download ZIP".**
+> Files under `data/` are tracked with [git-lfs](https://git-lfs.com);
+> Use one of the two options below to obtain the real ~1.2 GB feature dataset.
+
+**Option 1 — Download from Zenodo (no git-lfs required).**
+Download `clp_snn_openloris_features.zip` from the Zenodo record
+[DOI: 10.5281/zenodo.20492557](https://doi.org/10.5281/zenodo.20492557)
+and unzip it at the repo root so its contents land under `data/`
+(`data/1shot/`, `data/25shot/`, `data/X_test.npy`, etc.).
+
+**Option 2 — Clone with git-lfs.**
+Install [git-lfs](https://git-lfs.com) once per machine, then clone the repo:
+
+```bash
+git lfs install
+git clone https://github.com/elvinhajizada/CLP-SNN.git
+```
+
+If you already cloned the repo *without* LFS, run `git lfs pull` from inside
+the clone to fetch the missing data.
+
+### Contents of `data/`
 
 `data/` contains pre-extracted EfficientNet-B0 features for the OpenLORIS-Scene dataset (40 identity classes):
 
@@ -117,10 +140,10 @@ The Loihi 2 on-chip implementation of CLP-SNN requires access to Intel's proprie
 ## Citation
 
 ```bibtex
-@article{anonymous2026clpsnn,
-  title   = {Real-time Continual Learning on Intel Loihi 2},
-  author  = {Anonymous},
-  journal = {Nature Communications},
-  year    = {2026}
+@article{hajizada2026continual,
+  title={Online Continual Learning on Intel Loihi 2 via a Co-designed Spiking Neural Network},
+  author={Hajizada, Elvin and Rager, Danielle and Shea, Timothy and Campos-Macias, Leobardo and Wild, Andreas and H{\"u}llermeier, Eyke and Sandamirskaya, Yulia and Davies, Mike},
+  journal={arXiv preprint arXiv:2511.01553},
+  year={2026}
 }
 ```
