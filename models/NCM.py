@@ -23,7 +23,7 @@ class NearestClassMean(nn.Module):
     
     Optimizations for Tensor Cores:
     - FP16 operations automatically use Tensor Cores on Orin Nano
-    - Batch operations (fit_batch, batch inference) maximize core utilization
+    - Batch inference (predict_batch) maximizes core utilization
     - Efficient distance computation using GEMM-based L2 distance
     - CUDA graph caching for repeated inference patterns
     
@@ -83,10 +83,9 @@ class NearestClassMean(nn.Module):
         if len(y.shape) == 0:
             y = y.unsqueeze(0)
 
-        # update class means with FP16 support
-        with torch.autocast(device_type=self.device, dtype=torch.float16, enabled=self.use_fp16):
-            self.muK[y, :] += (x - self.muK[y, :]) / (self.cK[y].float() + 1).unsqueeze(
-                1)
+        # update class means - data already in self.dtype (FP16 if use_fp16=True);
+        # autocast adds only overhead for element-wise ops
+        self.muK[y, :] += (x - self.muK[y, :]) / (self.cK[y] + 1).unsqueeze(1)
         self.cK[y] += 1
         self.num_updates += 1
 
@@ -101,18 +100,19 @@ class NearestClassMean(nn.Module):
         :param B: M x d matrix (features for inference)
         :return: M x N distance matrix (negative for sorting)
         """
-        with torch.autocast(device_type=self.device, dtype=torch.float16, enabled=self.use_fp16):
-            # Compute norms: ||a||^2 and ||b||^2
-            A_sqnorm = torch.sum(A * A, dim=1, keepdim=True)  # N x 1
-            B_sqnorm = torch.sum(B * B, dim=1, keepdim=True)  # M x 1
-            
-            # Compute dot product: a^T * b using GEMM (Tensor Core optimized)
-            # B @ A.T = M x d @ d x N = M x N
-            AB = torch.mm(B, A.t())
-            
-            # L2 distance: ||a-b||^2 = ||a||^2 + ||b||^2 - 2*a^T*b
-            dist = A_sqnorm.t() + B_sqnorm - 2 * AB
-            
+        # Data is already in self.dtype; native FP16 GEMM uses Tensor Cores
+        # automatically, no autocast context needed.
+        # Compute norms: ||a||^2 and ||b||^2
+        A_sqnorm = torch.sum(A * A, dim=1, keepdim=True)  # N x 1
+        B_sqnorm = torch.sum(B * B, dim=1, keepdim=True)  # M x 1
+
+        # Compute dot product: a^T * b using GEMM (Tensor Core optimized)
+        # B @ A.T = M x d @ d x N = M x N
+        AB = torch.mm(B, A.t())
+
+        # L2 distance: ||a-b||^2 = ||a||^2 + ||b||^2 - 2*a^T*b
+        dist = A_sqnorm.t() + B_sqnorm - 2 * AB
+
         return -dist  # Negative for argmax (closest = smallest negative distance)
 
     @torch.no_grad()
@@ -170,41 +170,7 @@ class NearestClassMean(nn.Module):
             return torch.softmax(scores.to(torch.float32), dim=0).t().cpu()
 
     @torch.no_grad()
-    def ood_predict(self, x):
-        return self.predict(x, return_probas=True)
-
-    @torch.no_grad()
-    def evaluate_ood_(self, test_loader):
-        print('\nTesting OOD on %d images.' % len(test_loader.dataset))
-
-        num_samples = len(test_loader.dataset)
-        scores = torch.empty((num_samples, self.num_classes))
-        labels = torch.empty(num_samples).long()
-        start = 0
-        for test_x, test_y in test_loader:
-            if self.backbone is not None:
-                with torch.autocast(device_type=self.device, dtype=torch.float16, enabled=self.use_fp16):
-                    batch_x_feat = self.backbone(test_x.to(self.device))
-            else:
-                batch_x_feat = test_x.to(self.device).to(self.dtype)
-            ood_scores = self.ood_predict(batch_x_feat)
-            end = start + ood_scores.shape[0]
-            scores[start:end] = ood_scores
-            labels[start:end] = test_y.squeeze()
-            start = end
-
-        return scores, labels
-
-    @torch.no_grad()
-    def fit_batch(self, batch_x, batch_y, batch_ix):
-        # fit NCM one example at a time
-        for x, y in zip(batch_x, batch_y):
-            self.fit(x.cpu(), y.view(1, ), None)
-
-    @torch.no_grad()
     def train_(self, train_loader):
-        # print('\nTraining on %d images.' % len(train_loader.dataset))
-
         for batch_x, batch_y, batch_ix in train_loader:
             if self.backbone is not None:
                 with torch.autocast(device_type=self.device, dtype=torch.float16, enabled=self.use_fp16):
@@ -212,7 +178,9 @@ class NearestClassMean(nn.Module):
             else:
                 batch_x_feat = batch_x.to(self.device).to(self.dtype)
 
-            self.fit_batch(batch_x_feat, batch_y, batch_ix)
+            # fit NCM one example at a time
+            for x, y in zip(batch_x_feat, batch_y):
+                self.fit(x.cpu(), y.view(1, ), None)
 
     @torch.no_grad()
     def evaluate_(self, test_loader):
