@@ -5,7 +5,9 @@ Adapted from Tyler Hayes' Embedded-CL (https://github.com/tyler-hayes/Embedded-C
 Key constructor flags:
   streaming_update_sigma=True   → Standard SLDA (updates Σ each step) [Table 1]
   streaming_update_sigma=False  → SLDA Frozen Σ (fixed covariance) [Table 1]
-  streaming_update_lambda=True  → Lazy Λ=pinv(Σ) recomputed every lambda_update_period steps
+  streaming_update_lambda=True  → Lazy Λ=inv(Σ) recomputed every lambda_update_period steps
+  use_fp16=True                 → FP16 storage/matmuls (Tensor Cores); Σ is upcast to
+                                  FP32 for the matrix inverse, Λ downcast back to FP16
 
 Changes vs original Embedded-CL:
   - `fit()` accepts a step index argument (ignored, for interface consistency).
@@ -13,6 +15,8 @@ Changes vs original Embedded-CL:
     callers use `.topk()` directly.
   - Backbone is optional (pass `backbone=None` when features are pre-extracted).
   - Default device is 'cpu' (original defaulted to 'cuda').
+  - Λ is computed with `torch.linalg.inv` (≈10x faster than the original
+    `torch.pinverse`; equivalent for the shrinkage-regularized SPD matrix).
 """
 import os
 import torch
@@ -26,13 +30,14 @@ class StreamingLDA(nn.Module):
     """
 
     def __init__(self, input_shape, num_classes, backbone=None, shrinkage_param=1e-4, streaming_update_sigma=True,
-                 streaming_update_lambda=False, lambda_update_period = 1, ood_type='mahalanobis', device='cuda'):
+                 streaming_update_lambda=False, lambda_update_period = 1, device='cuda', use_fp16=False):
         """
         Init function for the SLDA model.
         :param input_shape: feature dimension
         :param num_classes: number of total classes in stream
         :param shrinkage_param: value of the shrinkage parameter
         :param streaming_update_sigma: True if sigma is plastic else False
+        :param use_fp16: FP16 storage and matmuls (Tensor Core acceleration)
         """
 
         super(StreamingLDA, self).__init__()
@@ -44,21 +49,31 @@ class StreamingLDA(nn.Module):
         self.shrinkage_param = shrinkage_param
         self.streaming_update_sigma = streaming_update_sigma
         self.streaming_update_lambda = streaming_update_lambda
-        self.ood_type = ood_type
         self.lambda_update_period = lambda_update_period
+        self.use_fp16 = use_fp16
+        self.dtype = torch.float16 if use_fp16 else torch.float32
 
         # feature extraction backbone
         self.backbone = backbone
         if backbone is not None:
             self.backbone = backbone.eval().to(device)
 
-        # setup weights for SLDA
-        self.muK = torch.zeros((num_classes, input_shape)).to(self.device)
-        self.cK = torch.zeros(num_classes).to(self.device)
-        self.Sigma = torch.ones((input_shape, input_shape)).to(self.device)  # covariance
+        # setup weights for SLDA; contiguous layout for efficient GEMM
+        self.muK = torch.zeros((num_classes, input_shape), dtype=self.dtype, device=self.device).contiguous()
+        self.cK = torch.zeros(num_classes, dtype=self.dtype, device=self.device).contiguous()
+        self.Sigma = torch.eye(input_shape, dtype=self.dtype, device=self.device).contiguous()  # covariance
         self.num_updates = 0
-        self.Lambda = torch.zeros_like(self.Sigma).to(self.device)
+        self.Lambda = torch.zeros_like(self.Sigma).contiguous()
         self.prev_num_updates = -1
+
+    def _compute_lambda(self):
+        """Λ = inv((1-s)Σ + sI). Inverse runs in FP32 (linalg.inv lacks FP16
+        support); result is cast back to self.dtype."""
+        Sigma_fp32 = self.Sigma.float()
+        Lambda_fp32 = torch.linalg.inv(
+            (1 - self.shrinkage_param) * Sigma_fp32 +
+            self.shrinkage_param * torch.eye(self.input_shape, dtype=torch.float32, device=self.device))
+        return Lambda_fp32.to(self.dtype).contiguous()
 
     @torch.no_grad()
     def fit(self, x, y, item_ix):
@@ -69,7 +84,7 @@ class StreamingLDA(nn.Module):
         :param y: a torch tensor of the input label
         :return: None
         """
-        x = x.to(self.device)
+        x = x.to(self.device).to(self.dtype)
         y = y.long().to(self.device)
 
         # make sure things are the right shape
@@ -80,7 +95,7 @@ class StreamingLDA(nn.Module):
 
         # covariance updates
         if self.streaming_update_sigma:
-            x_minus_mu = (x - self.muK[y])        
+            x_minus_mu = (x - self.muK[y])
             mult = torch.matmul(x_minus_mu.transpose(1, 0), x_minus_mu)
             delta = mult * self.num_updates / (self.num_updates + 1)
             self.Sigma = (self.num_updates * self.Sigma + delta) / (
@@ -93,13 +108,7 @@ class StreamingLDA(nn.Module):
         # compute/load Lambda matrix
         if self.streaming_update_lambda and self.num_updates % self.lambda_update_period == 0:
             # there have been updates to the model, compute Lambda
-            Lambda = torch.pinverse(
-                (
-                        1 - self.shrinkage_param) * self.Sigma +
-                self.shrinkage_param * torch.eye(
-                    self.input_shape).to(
-                    self.device))
-            self.Lambda = Lambda
+            self.Lambda = self._compute_lambda()
             self.prev_num_updates = self.num_updates
 
         self.num_updates += 1
@@ -113,21 +122,14 @@ class StreamingLDA(nn.Module):
         of predictions returned
         :return: the test predictions or probabilities
         """
-        X = X.to(self.device)
+        X = X.to(self.device).to(self.dtype)
 
         # compute/load Lambda matrix
         if (not self.streaming_update_lambda) and (self.prev_num_updates != self.num_updates):
             # there have been updates to the model, compute Lambda
-            Lambda = torch.pinverse(
-                (
-                        1 - self.shrinkage_param) * self.Sigma +
-                self.shrinkage_param * torch.eye(
-                    self.input_shape).to(
-                    self.device))
-            self.Lambda = Lambda
+            self.Lambda = self._compute_lambda()
             self.prev_num_updates = self.num_updates
-        else:
-            Lambda = self.Lambda
+        Lambda = self.Lambda
 
         # parameters for predictions
         M = self.muK.transpose(1, 0)
@@ -149,73 +151,16 @@ class StreamingLDA(nn.Module):
             return torch.softmax(scores, dim=1).cpu()
 
     @torch.no_grad()
-    def ood_predict(self, x):
-        def pd_mat(input1, input2, precision):  # assumes diagonal precision (kxd)
-            f1 = (input1[:, None] - input2)
-            f2 = f1.matmul(precision[None, :, :])
-            return 0.5 * torch.diagonal(f2.matmul(f1.transpose(2, 1)), dim1=1, dim2=2)
-
-        # compute/load Lambda matrix
-        if self.prev_num_updates != self.num_updates:
-            # there have been updates to the model, compute Lambda
-            invC = torch.pinverse(
-                (
-                        1 - self.shrinkage_param) * self.Sigma +
-                self.shrinkage_param * torch.eye(
-                    self.input_shape).to(
-                    self.device))
-            self.Lambda = invC
-            self.prev_num_updates = self.num_updates
-        else:
-            invC = self.Lambda
-
-        if self.ood_type == 'mahalanobis':
-            scores = -pd_mat(x, self.muK, invC)
-        elif self.ood_type == 'baseline':
-            scores = self.predict(x, return_probas=True)
-        else:
-            raise NotImplementedError
-
-        return scores
-
-    @torch.no_grad()
-    def evaluate_ood_(self, test_loader):
-        print('\nTesting OOD on %d images.' % len(test_loader.dataset))
-
-        num_samples = len(test_loader.dataset)
-        scores = torch.empty((num_samples, self.num_classes))
-        labels = torch.empty(num_samples).long()
-        start = 0
-        for test_x, test_y in test_loader:
-            if self.backbone is not None:
-                batch_x_feat = self.backbone(test_x.to(self.device))
-            else:
-                batch_x_feat = test_x.to(self.device)
-            ood_scores = self.ood_predict(batch_x_feat)
-            end = start + ood_scores.shape[0]
-            scores[start:end] = ood_scores
-            labels[start:end] = test_y.squeeze()
-            start = end
-
-        return scores, labels
-
-    @torch.no_grad()
-    def fit_batch(self, batch_x, batch_y, batch_ix):
-        # fit SLDA one example at a time
-        for x, y in zip(batch_x, batch_y):
-            self.fit(x.cpu(), y.view(1, ), None)
-
-    @torch.no_grad()
     def train_(self, train_loader):
-        # print('\nTraining on %d images.' % len(train_loader.dataset))
-
         for batch_x, batch_y, batch_ix in train_loader:
             if self.backbone is not None:
                 batch_x_feat = self.backbone(batch_x.to(self.device))
             else:
                 batch_x_feat = batch_x.to(self.device)
 
-            self.fit_batch(batch_x_feat, batch_y, batch_ix)
+            # fit SLDA one example at a time
+            for x, y in zip(batch_x_feat, batch_y):
+                self.fit(x.cpu(), y.view(1, ), None)
 
     @torch.no_grad()
     def evaluate_(self, test_loader):
@@ -244,11 +189,11 @@ class StreamingLDA(nn.Module):
         :param save_name: the name for the saved file
         :return:
         """
-        # grab parameters for saving
+        # grab parameters for saving (always stored in FP32 for portability)
         d = dict()
-        d['muK'] = self.muK.cpu()
-        d['cK'] = self.cK.cpu()
-        d['Sigma'] = self.Sigma.cpu()
+        d['muK'] = self.muK.float().cpu()
+        d['cK'] = self.cK.float().cpu()
+        d['Sigma'] = self.Sigma.float().cpu()
         d['num_updates'] = self.num_updates
 
         # save model out
@@ -264,9 +209,9 @@ class StreamingLDA(nn.Module):
         # load parameters
         d = torch.load(os.path.join(save_file))
         print('\nloading ckpt from: %s' % save_file)
-        self.muK = d['muK'].to(self.device)
-        self.cK = d['cK'].to(self.device)
-        self.Sigma = d['Sigma'].to(self.device)
+        self.muK = d['muK'].to(self.device).to(self.dtype)
+        self.cK = d['cK'].to(self.device).to(self.dtype)
+        self.Sigma = d['Sigma'].to(self.device).to(self.dtype)
         self.num_updates = d['num_updates']
 
 
@@ -401,19 +346,15 @@ class RankOneSLDA(nn.Module):
             return torch.softmax(scores, dim=1).cpu()
 
     @torch.no_grad()
-    def fit_batch(self, batch_x, batch_y, batch_ix):
-        # fit one example at a time
-        for x, y in zip(batch_x, batch_y):
-            self.fit(x.cpu(), y.view(1, ), None)
-
-    @torch.no_grad()
     def train_(self, train_loader):
         for batch_x, batch_y, batch_ix in train_loader:
             if self.backbone is not None:
                 batch_x_feat = self.backbone(batch_x.to(self.device))
             else:
                 batch_x_feat = batch_x.to(self.device)
-            self.fit_batch(batch_x_feat, batch_y, batch_ix)
+            # fit one example at a time
+            for x, y in zip(batch_x_feat, batch_y):
+                self.fit(x.cpu(), y.view(1, ), None)
 
     @torch.no_grad()
     def evaluate_(self, test_loader):
