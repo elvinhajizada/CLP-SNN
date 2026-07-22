@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project outputs (large binary artifacts — not committed)
+experiments/results/
+
+# Analysis outputs saved to repo root by older scripts
+# (PNGs are scoped to the root so curated figures in images/ stay trackable;
+# PDFs are ignored everywhere by convention — images/ tracks PNGs only)
+/*.png
+*.pdf
+analysis/pareto_caption.md
+images/pareto_plots.svg
+images/pareto_plots.png
+images/acc_trend_1shot_baselines.png
+
+# Local planning documents (not for the public repo)
+/nmi-resubmission-action-plan.md
+/nmi-manuscript-integration.md
+/analysis/ocl_cost_analysis.md
