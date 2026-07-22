@@ -11,6 +11,10 @@ Changes vs original Embedded-CL:
   - Backbone is optional (pass `backbone=None` when features are pre-extracted).
   - `use_replay=False` mode added: behaves as fine-tuning (no replay buffer).
   - Default device is 'cpu' (original defaulted to 'cuda').
+  - Optional FP16 mode (`use_fp16=True`): classifier/backbone in half precision,
+    FP16 buffer storage (50% memory), autocast forward passes. Replay sampling
+    semantics (with-replacement) and buffer eviction are unchanged from the
+    FP32 paper configuration.
 """
 from collections import defaultdict
 import torch
@@ -42,11 +46,12 @@ class StreamingSoftmax(nn.Module):
     """
 
     def __init__(self, input_shape, num_classes, use_replay=False, backbone=None, device='cuda', lr=0.1,
-                 weight_decay=1e-5, replay_samples=50, max_buffer_size=7300):
+                 weight_decay=1e-5, replay_samples=50, max_buffer_size=7300, use_fp16=False):
         """
         Init function for the Streaming Softmax model.
         :param input_shape: feature dimension
         :param num_classes: number of total classes in stream
+        :param use_fp16: half-precision classifier/backbone/buffer (Tensor Cores)
         """
 
         super(StreamingSoftmax, self).__init__()
@@ -58,11 +63,16 @@ class StreamingSoftmax(nn.Module):
         self.use_replay = use_replay
         self.replay_samples = replay_samples
         self.max_buffer_size = max_buffer_size
+        self.use_fp16 = use_fp16
+        self.dtype = torch.float16 if use_fp16 else torch.float32
+        self.np_dtype = np.float16 if use_fp16 else np.float32
 
         # feature extraction backbone
         self.backbone = backbone
         if backbone is not None:
             self.backbone = backbone.eval().to(device)
+            if use_fp16:
+                self.backbone = self.backbone.half()
 
         # model specific structures
         self.latent_dict = {}
@@ -75,6 +85,8 @@ class StreamingSoftmax(nn.Module):
 
         self.classifier = SoftmaxLayer(input_shape, num_classes)
         self.classifier = self.classifier.to(device)
+        if use_fp16:
+            self.classifier = self.classifier.half()
         self.criterion = torch.nn.CrossEntropyLoss()
         self.optimizer = torch.optim.SGD(self.classifier.parameters(), lr=lr, momentum=0.9, weight_decay=weight_decay)
 
@@ -84,11 +96,12 @@ class StreamingSoftmax(nn.Module):
         # zero out grads before backward pass because they are accumulated
         self.optimizer.zero_grad()
 
-        data_points = torch.unsqueeze(x, 0).to(self.device)
+        data_points = torch.unsqueeze(x, 0).to(self.device).to(self.dtype)
         data_labels = y.to(self.device)
 
-        output = self.classifier(data_points)
-        loss = self.criterion(output, data_labels)
+        with torch.autocast(device_type=self.device, dtype=torch.float16, enabled=self.use_fp16):
+            output = self.classifier(data_points)
+        loss = self.criterion(output.float(), data_labels)
         loss.backward()
         self.optimizer.step()
 
@@ -106,11 +119,11 @@ class StreamingSoftmax(nn.Module):
         num_samples_in_buffer = len(self.rehearsal_ixs)
 
         if num_samples_in_buffer == 0:
-            data_points = torch.unsqueeze(x, 0).to(self.device)
+            data_points = torch.unsqueeze(x, 0).to(self.device).to(self.dtype)
             data_labels = y.to(self.device)
         elif num_samples_in_buffer < self.replay_samples:  # if buffer less than self.replay_samples
             num_samples = num_samples_in_buffer
-            data_points = torch.empty((num_samples + 1, self.input_shape)).to(self.device)
+            data_points = torch.empty((num_samples + 1, self.input_shape), dtype=self.dtype).to(self.device)
             data_labels = torch.empty((num_samples + 1), dtype=torch.long).to(self.device)
             data_points[0] = x.to(self.device)
             data_labels[0] = y.to(self.device)
@@ -121,7 +134,7 @@ class StreamingSoftmax(nn.Module):
                 data_labels[ii + 1] = torch.from_numpy(self.latent_dict[v][1]).to(self.device)
         else:  # if buffer more than self.replay_samples
             num_samples = self.replay_samples
-            data_points = torch.empty((num_samples + 1, self.input_shape)).to(self.device)
+            data_points = torch.empty((num_samples + 1, self.input_shape), dtype=self.dtype).to(self.device)
             data_labels = torch.empty((num_samples + 1), dtype=torch.long).to(self.device)
             data_points[0] = x.to(self.device)
             data_labels[0] = y.to(self.device)
@@ -131,8 +144,9 @@ class StreamingSoftmax(nn.Module):
                 data_points[ii + 1] = torch.from_numpy(self.latent_dict[v][0]).to(self.device)
                 data_labels[ii + 1] = torch.from_numpy(self.latent_dict[v][1]).to(self.device)
 
-        output = self.classifier(data_points)
-        loss = self.criterion(output, data_labels)
+        with torch.autocast(device_type=self.device, dtype=torch.float16, enabled=self.use_fp16):
+            output = self.classifier(data_points)
+        loss = self.criterion(output.float(), data_labels)
         loss.backward()
         self.optimizer.step()
 
@@ -144,7 +158,8 @@ class StreamingSoftmax(nn.Module):
 
         item_ix_np = item_ix
         label_np = y.cpu().numpy()
-        data_np = x.cpu().numpy()
+        # buffer stored in np_dtype (FP16 halves buffer memory when use_fp16=True)
+        data_np = x.cpu().numpy().astype(self.np_dtype, copy=False)
 
         # add new instance to buffer
         self.latent_dict[item_ix_np] = [data_np, label_np]
@@ -164,14 +179,12 @@ class StreamingSoftmax(nn.Module):
             self.rehearsal_ixs.remove(rand_item_ix)
 
     @torch.no_grad()
-    def ood_predict(self, x):
-        return self.predict(x, return_probas=True)
-
-    @torch.no_grad()
     def predict(self, X, return_probas=False):
         self.classifier.eval()
-        X = X.to(self.device)
-        scores = self.classifier(X)
+        X = X.to(self.device).to(self.dtype)
+        with torch.autocast(device_type=self.device, dtype=torch.float16, enabled=self.use_fp16):
+            scores = self.classifier(X)
+        scores = scores.float()
 
         # mask off predictions for unseen classes
         not_visited_ix = torch.where(self.cK == 0)[0]
@@ -191,21 +204,16 @@ class StreamingSoftmax(nn.Module):
         else:
             self.fit_fine_tune(x, y)
 
-    def fit_batch(self, batch_x, batch_y, batch_ix):
-        # fit model one example at a time
-        for x, y, item_ix in zip(batch_x, batch_y, batch_ix):
-            self.fit(x, y.view(1, ), item_ix)
-
     def train_(self, train_loader):
-        # print('\nTraining on %d images.' % len(train_loader.dataset))
-
         for batch_x, batch_y, batch_ix in train_loader:
             if self.backbone is not None:
                 batch_x_feat = self.backbone(batch_x.to(self.device))
             else:
                 batch_x_feat = batch_x.to(self.device)
 
-            self.fit_batch(batch_x_feat, batch_y, batch_ix)
+            # fit model one example at a time
+            for x, y, item_ix in zip(batch_x_feat, batch_y, batch_ix):
+                self.fit(x, y.view(1, ), item_ix)
 
     @torch.no_grad()
     def evaluate_(self, test_loader):
@@ -226,27 +234,6 @@ class StreamingSoftmax(nn.Module):
             labels[start:end] = test_y.squeeze()
             start = end
         return probabilities, labels
-
-    @torch.no_grad()
-    def evaluate_ood_(self, test_loader):
-        print('\nTesting OOD on %d images.' % len(test_loader.dataset))
-
-        num_samples = len(test_loader.dataset)
-        scores = torch.empty((num_samples, self.num_classes))
-        labels = torch.empty(num_samples).long()
-        start = 0
-        for test_x, test_y in test_loader:
-            if self.backbone is not None:
-                batch_x_feat = self.backbone(test_x.to(self.device))
-            else:
-                batch_x_feat = test_x.to(self.device)
-            ood_scores = self.ood_predict(batch_x_feat)
-            end = start + ood_scores.shape[0]
-            scores[start:end] = ood_scores
-            labels[start:end] = test_y.squeeze()
-            start = end
-
-        return scores, labels
 
     def save_model(self, save_path, save_name):
         """
