@@ -495,48 +495,16 @@ class ContinuallyLearningPrototypes(nn.Module):
         # print("Total number of allocated prototypes:", self.next_alloc_id_)
 
     @torch.no_grad()
-    def ood_predict(self, x):
-        return self.predict(x, return_probas=False, thresholded=False)
-
-    @torch.no_grad()
-    def evaluate_ood_(self, test_loader):
-        print('\nTesting OOD on %d images.' % len(test_loader.dataset))
-
-        num_samples = len(test_loader.dataset)
-        scores = torch.empty((num_samples, self.num_classes))
-        labels = torch.empty(num_samples).long()
-        start = 0
-        for test_x, test_y in test_loader:
-            if self.backbone is not None:
-                batch_x_feat = self.backbone(test_x.to(self.device))
-            else:
-                batch_x_feat = test_x.to(self.device)
-            ood_scores = self.ood_predict(batch_x_feat)
-            end = start + ood_scores.shape[0]
-            scores[start:end] = ood_scores
-            labels[start:end] = test_y.squeeze()
-            start = end
-
-        return scores, labels
-
-    @torch.no_grad()
-    def fit_batch(self, batch_x, batch_y, batch_ix):
-        # fit NCM one example at a time
-
-        for x, y in zip(batch_x, batch_y):
-            self.fit(x[None, :], y)
-
-    @torch.no_grad()
     def train_(self, train_loader):
-        # print('\nTraining on %d images.' % len(train_loader.dataset))
-
         for batch_x, batch_y, batch_ix in train_loader:
             if self.backbone is not None:
                 batch_x_feat = self.backbone(batch_x.to(self.device))
             else:
                 batch_x_feat = batch_x.to(self.device)
 
-            self.fit_batch(batch_x_feat, batch_y, batch_ix)
+            # fit one example at a time
+            for x, y in zip(batch_x_feat, batch_y):
+                self.fit(x[None, :], y)
 
     @torch.no_grad()
     def evaluate_(self, test_loader,return_probas=True, thresholded=False, return_sims=False):
