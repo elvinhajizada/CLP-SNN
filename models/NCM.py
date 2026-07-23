@@ -7,11 +7,12 @@ Changes vs original Embedded-CL:
   - `predict()` returns raw cosine-similarity scores rather than probabilities;
     callers use `.topk()` directly.
   - Backbone is optional (pass `backbone=None` when features are pre-extracted).
-  - Extended with optional FP16 support and CUDA graph caching for Jetson Orin Nano.
+  - Extended with optional FP16 support for Jetson Orin Nano.
+  - Prototype squared norms are cached and updated incrementally in fit()
+    (O(d) for the changed class) instead of being recomputed over all classes
+    at every predict() call.
   - Default device is 'cpu' (original defaulted to 'cuda').
 """
-# Adapted from Tyler Hayes' Embedded-CL (https://github.com/tyler-hayes/Embedded-CL).
-# Extended with FP16 support and CUDA graph caching for Jetson Orin Nano deployment.
 import os
 import torch
 from torch import nn
@@ -20,18 +21,17 @@ from torch import nn
 class NearestClassMean(nn.Module):
     """
     Optimized Nearest Class Mean for Jetson Orin Nano.
-    
+
     Optimizations for Tensor Cores:
     - FP16 operations automatically use Tensor Cores on Orin Nano
     - Batch inference (predict_batch) maximizes core utilization
-    - Efficient distance computation using GEMM-based L2 distance
-    - CUDA graph caching for repeated inference patterns
-    
+    - Efficient distance computation using GEMM-based L2 distance with
+      cached prototype norms
+
     Hardware targets: Jetson Orin Nano 8GB (80 Tensor Cores @ FP16)
-    Expected throughput: ~20 FP16 TFLOPS
     """
 
-    def __init__(self, input_shape, num_classes, backbone=None, device='cuda', use_fp16=False, enable_cuda_graphs=True):
+    def __init__(self, input_shape, num_classes, backbone=None, device='cuda', use_fp16=False):
         """
         Init function for the NCM model.
         :param input_shape: feature dimension
@@ -39,7 +39,6 @@ class NearestClassMean(nn.Module):
         :param backbone: optional feature extraction backbone
         :param device: device to run on ('cuda' or 'cpu')
         :param use_fp16: whether to use FP16 precision for Jetson Tensor Cores
-        :param enable_cuda_graphs: cache repeated inference patterns (recommended for streaming)
         """
 
         super(NearestClassMean, self).__init__()
@@ -59,11 +58,9 @@ class NearestClassMean(nn.Module):
         # setup weights for NCM with FP16 support - ensure contiguous layout for Tensor Cores
         self.muK = torch.zeros((num_classes, input_shape), dtype=self.dtype, device=self.device).contiguous()
         self.cK = torch.zeros(num_classes, dtype=self.dtype, device=self.device).contiguous()
+        # cached ||muK||^2 per class, maintained in fit (avoids a Kd pass per predict)
+        self.muK_sqnorm = torch.zeros(num_classes, dtype=self.dtype, device=self.device)
         self.num_updates = 0
-        
-        # CUDA graph caching for repeated inference (Orin Nano optimization)
-        self.enable_cuda_graphs = enable_cuda_graphs and device == 'cuda'
-        self._cached_graphs = {}
 
     @torch.no_grad()
     def fit(self, x, y, item_ix):
@@ -87,6 +84,8 @@ class NearestClassMean(nn.Module):
         # autocast adds only overhead for element-wise ops
         self.muK[y, :] += (x - self.muK[y, :]) / (self.cK[y] + 1).unsqueeze(1)
         self.cK[y] += 1
+        # refresh the cached squared norm of the single changed prototype
+        self.muK_sqnorm[y] = torch.sum(self.muK[y, :] * self.muK[y, :], dim=1)
         self.num_updates += 1
 
     @torch.no_grad()
@@ -102,8 +101,11 @@ class NearestClassMean(nn.Module):
         """
         # Data is already in self.dtype; native FP16 GEMM uses Tensor Cores
         # automatically, no autocast context needed.
-        # Compute norms: ||a||^2 and ||b||^2
-        A_sqnorm = torch.sum(A * A, dim=1, keepdim=True)  # N x 1
+        # Compute norms: ||a||^2 (cached for the prototype matrix) and ||b||^2
+        if A is self.muK:
+            A_sqnorm = self.muK_sqnorm.unsqueeze(1)  # N x 1, maintained in fit
+        else:
+            A_sqnorm = torch.sum(A * A, dim=1, keepdim=True)  # N x 1
         B_sqnorm = torch.sum(B * B, dim=1, keepdim=True)  # M x 1
 
         # Compute dot product: a^T * b using GEMM (Tensor Core optimized)
@@ -180,7 +182,7 @@ class NearestClassMean(nn.Module):
 
             # fit NCM one example at a time
             for x, y in zip(batch_x_feat, batch_y):
-                self.fit(x.cpu(), y.view(1, ), None)
+                self.fit(x, y.view(1, ), None)
 
     @torch.no_grad()
     def evaluate_(self, test_loader):
@@ -233,6 +235,7 @@ class NearestClassMean(nn.Module):
         # Load and convert to appropriate precision
         self.muK = d['muK'].to(self.device).to(self.dtype)
         self.cK = d['cK'].to(self.device).to(self.dtype)
+        self.muK_sqnorm = torch.sum(self.muK * self.muK, dim=1)
         self.num_updates = d['num_updates']
         # Update FP16 setting if it was saved
         if 'use_fp16' in d:

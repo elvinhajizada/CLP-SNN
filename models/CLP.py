@@ -107,18 +107,22 @@ class ContinuallyLearningPrototypes(nn.Module):
         while True:
             inds_sorted = 0
             sims_sorted = 0
-            similarities = self._calc_similarities(x)
+            # Similarities against allocated prototypes only (unallocated
+            # slots are zero vectors: sims exactly 0, always below threshold,
+            # so excluding them is behavior-identical and saves (P - M) * d
+            # MACs per fit)
+            n_alloc = self._n_allocated()
+            similarities = self._calc_similarities(x, n_alloc)
             sims = similarities.clone().detach()
 
             # Identify prototypes with similarity below threshold (failed threshold check)
-            below_threshold = torch.gt(self.sim_th_, sims)
+            below_threshold = torch.gt(self.sim_th_[:n_alloc], sims)
             sims[below_threshold] = 0
-            # Count only allocated prototypes that pass the threshold
-            allocated_mask = self.proto_labels_ >= 0
-            n_allocated = torch.sum(allocated_mask)
-            n_th_passing_protos = n_allocated - torch.sum(below_threshold[allocated_mask.squeeze()])
+            # All sliced slots are allocated; count those passing the threshold
+            n_th_passing_protos = n_alloc - torch.sum(below_threshold)
             if torch.sum(sims) > 0:
-                sims_sorted, inds_sorted = torch.sort(sims, 0, descending=True)
+                # only the top n_wta prototypes are ever inspected downstream
+                sims_sorted, inds_sorted = torch.topk(sims, min(self.n_wta, n_alloc), dim=0)
                 bmu_ind = inds_sorted[0]
                 bmu_sim = sims_sorted[0]
             else:
@@ -380,69 +384,65 @@ class ContinuallyLearningPrototypes(nn.Module):
         X = X.to(self.device)
         # if self.sim_metric == 'dot_product':  # normalize x, if we use dot product similarity
         #     X = X / norm(X, dim=1).unsqueeze(1)
-            
-        sims = self._calc_similarities(X).detach()
-        
+
+        # Similarities against allocated prototypes only (unallocated slots
+        # are zero vectors and can never contribute a class score)
+        n_alloc = self._n_allocated()
+        sims = self._calc_similarities(X, n_alloc).detach()
+
         if thresholded:
-            th_passing_check = torch.gt(self.sim_th_.tile((1, sims.shape[1])), sims)
+            th_passing_check = torch.gt(self.sim_th_[:n_alloc].tile((1, sims.shape[1])), sims)
             sims[th_passing_check] = 0
 
         n_samples = X.shape[0]
-        sims_sorted, inds_sorted = torch.sort(sims, 0, descending=True)
+        proto_labels_alloc = self.proto_labels_[:n_alloc]
 
-        # Collect top-n_wta allocated prototypes (only those with label >= 0)
-        final_labels = []
-        for i in range(sims_sorted.shape[1]):  # Iterate over samples (columns)
-            # Get allocated prototypes sorted by similarity for this sample
-            allocated_inds = inds_sorted[:, i]
-            allocated_mask = self.proto_labels_[allocated_inds].squeeze() >= 0
-            valid_allocated_inds = allocated_inds[allocated_mask][:self.n_wta]
-            
-            # Get labels of these allocated prototypes
-            sample_labels = self.proto_labels_[valid_allocated_inds].cpu().numpy().flatten()
-            
-            if len(sample_labels) == 0:
-                # If all labels are invalid, assign label 0 as fallback
-                final_labels.append(0)
-            else:
-                label_counts = np.bincount(sample_labels)  # Count occurrences
-                max_count = np.max(label_counts)  # Find max count
-
-                # Find all labels with the maximum count
-                candidates = np.flatnonzero(label_counts == max_count)
-
-                # Deterministically select the smallest label for tie-breaking
-                most_common_label = candidates[0]
-                
-                final_labels.append(most_common_label)
-
-        final_labels = np.array(final_labels)  # Convert to numpy array
-
-        # Create a mask for each unique label
-        label_masks = [self.proto_labels_ == label for label in range(self.n_protos)]
-
-        # Calculate the maximum score for each class using masking and max
-        scores = torch.zeros(size=(X.shape[0],self.num_classes))
-
-        # learned classes
-        learned_classes = torch.unique(self.proto_labels_[self.proto_labels_ > -1])
-
-        # Apply the mask and take the maximum for each class
-        label_masks = torch.squeeze(torch.stack(label_masks))
-        for c in learned_classes:
-            class_mask = label_masks[c, :]
-            class_scores = sims[class_mask, :]
-            scores[:, c] = class_scores.max(dim=0)[0]
-            
-        # return predictions or probabilities
         if return_sims:
-            return sims[:self.next_alloc_id_,:].T
+            return sims[:self.next_alloc_id_, :].T
+
         if return_voting_winner:
-            scores = torch.zeros(size=(n_samples,self.num_classes))
+            # Voting labels are only needed on this path; the per-sample
+            # Python loop is skipped for plain score prediction
+            _, inds_sorted = torch.sort(sims, 0, descending=True)
+            final_labels = []
+            for i in range(inds_sorted.shape[1]):  # Iterate over samples (columns)
+                # All sliced prototypes are allocated (label >= 0)
+                allocated_inds = inds_sorted[:, i]
+                valid_allocated_inds = allocated_inds[:self.n_wta]
+
+                # Get labels of these allocated prototypes
+                sample_labels = proto_labels_alloc[valid_allocated_inds].cpu().numpy().flatten()
+
+                if len(sample_labels) == 0:
+                    # If all labels are invalid, assign label 0 as fallback
+                    final_labels.append(0)
+                else:
+                    label_counts = np.bincount(sample_labels)  # Count occurrences
+                    max_count = np.max(label_counts)  # Find max count
+
+                    # Find all labels with the maximum count
+                    candidates = np.flatnonzero(label_counts == max_count)
+
+                    # Deterministically select the smallest label for tie-breaking
+                    final_labels.append(candidates[0])
+
+            final_labels = np.array(final_labels)
+            scores = torch.zeros(size=(n_samples, self.num_classes))
             # Set the winner label to 1 for each sample
             scores[torch.arange(n_samples), torch.tensor(final_labels)] = 1
             return scores
-        elif not return_probas:
+
+        # Max similarity per learned class; masks are built per learned class
+        # over the allocated slice (was: an O(P^2) mask build over all slots)
+        scores = torch.zeros(size=(n_samples, self.num_classes))
+        learned_classes = torch.unique(proto_labels_alloc[proto_labels_alloc > -1])
+        labels_flat = proto_labels_alloc.squeeze(1)
+        for c in learned_classes:
+            class_scores = sims[labels_flat == c, :]
+            scores[:, c] = class_scores.max(dim=0)[0]
+
+        # return predictions or probabilities
+        if not return_probas:
             return scores.cpu()
         else:
             return torch.softmax(scores, dim=1).cpu()
@@ -459,25 +459,37 @@ class ContinuallyLearningPrototypes(nn.Module):
             
         return error
     
-    def _calc_similarities(self, x):
+    def _n_allocated(self):
+        """Number of allocated prototype slots.
 
+        next_alloc_id_ is clamped at n_protos - 1, so once the buffer is full
+        the slot AT next_alloc_id_ is itself allocated and must be counted.
+        """
+        n = self.next_alloc_id_
+        if n < self.n_protos and self.proto_labels_[n] >= 0:
+            n += 1
+        return n
+
+    def _calc_similarities(self, x, n_protos=None):
+        """Similarities between x and the first n_protos prototypes
+        (all slots when n_protos is None)."""
         similarities = 0
         if isinstance(x, np.ndarray):
             x = torch.from_numpy(x)
 
-        # x = x.float()
-
         if len(x.shape) == 1:
             x = x.unsqueeze(dim=0)
 
+        protos = self.prototypes_ if n_protos is None else self.prototypes_[:n_protos]
+
         if self.sim_metric == 'euclidean':
-            similarities = -torch.cdist(self.prototypes_, x, p=2)
+            similarities = -torch.cdist(protos, x, p=2)
 
         elif self.sim_metric == 'dot_product':
-            similarities = torch.mm(self.prototypes_, x.T)
+            similarities = torch.mm(protos, x.T)
 
         # elif self.sim_metric == 'cosine':
-        #     similarities = pairwise_cosine_similarity(self.prototypes_, x)
+        #     similarities = pairwise_cosine_similarity(protos, x)
         return similarities
 
     def _allocate(self, x, y):
