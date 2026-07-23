@@ -281,7 +281,8 @@ elif DEVICE == 'atom':
 else:
     logs_path = '/clp/reports/'
 
-if not os.path.exists(logs_path):
+# The logs dir backs the bm_utils Reporter, which --no-power skips entirely
+if not args.no_power and not os.path.exists(logs_path):
     os.makedirs(logs_path)
 
 precision_tag = 'fp16' if use_fp16 else 'fp32'
