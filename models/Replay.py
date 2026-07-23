@@ -15,6 +15,9 @@ Changes vs original Embedded-CL:
     FP16 buffer storage (50% memory), autocast forward passes. Replay sampling
     semantics (with-replacement) and buffer eviction are unchanged from the
     FP32 paper configuration.
+  - Buffer stored in preallocated device tensors; replayed rows are gathered
+    with a single index_select per fit instead of one host-to-device copy per
+    row. Sampling and eviction semantics are unchanged.
 """
 from collections import defaultdict
 import torch
@@ -65,7 +68,6 @@ class StreamingSoftmax(nn.Module):
         self.max_buffer_size = max_buffer_size
         self.use_fp16 = use_fp16
         self.dtype = torch.float16 if use_fp16 else torch.float32
-        self.np_dtype = np.float16 if use_fp16 else np.float32
 
         # feature extraction backbone
         self.backbone = backbone
@@ -74,8 +76,18 @@ class StreamingSoftmax(nn.Module):
             if use_fp16:
                 self.backbone = self.backbone.half()
 
-        # model specific structures
-        self.latent_dict = {}
+        # model specific structures.
+        # The buffer lives in preallocated device tensors: one gather per fit
+        # instead of per-row host-to-device copies. rehearsal_ixs and
+        # class_id_to_item_ix_dict keep the exact original sampling/eviction
+        # bookkeeping (item_ix keys); item_ix_to_row maps each stored item to
+        # its buffer row.
+        self.buf_x = torch.empty((max_buffer_size, input_shape),
+                                 dtype=self.dtype, device=device)
+        self.buf_y = torch.empty(max_buffer_size, dtype=torch.long, device=device)
+        self.item_ix_to_row = {}
+        self.free_rows = []
+        self._next_row = 0
         self.rehearsal_ixs = []
         self.class_id_to_item_ix_dict = defaultdict(list)
         self.num_updates = 0
@@ -121,28 +133,28 @@ class StreamingSoftmax(nn.Module):
         if num_samples_in_buffer == 0:
             data_points = torch.unsqueeze(x, 0).to(self.device).to(self.dtype)
             data_labels = y.to(self.device)
-        elif num_samples_in_buffer < self.replay_samples:  # if buffer less than self.replay_samples
-            num_samples = num_samples_in_buffer
-            data_points = torch.empty((num_samples + 1, self.input_shape), dtype=self.dtype).to(self.device)
-            data_labels = torch.empty((num_samples + 1), dtype=torch.long).to(self.device)
+        else:
+            # buffer smaller than replay_samples: replay everything, in
+            # insertion order; otherwise sample with replacement (same
+            # randint stream as the original implementation)
+            if num_samples_in_buffer < self.replay_samples:
+                ixs = self.rehearsal_ixs
+            else:
+                pos = randint(len(self.rehearsal_ixs), self.replay_samples)
+                ixs = [self.rehearsal_ixs[_curr_ix] for _curr_ix in pos]
+            rows = torch.tensor([self.item_ix_to_row[v] for v in ixs],
+                                dtype=torch.long, device=self.device)
+            num_samples = len(ixs)
+
+            data_points = torch.empty((num_samples + 1, self.input_shape),
+                                      dtype=self.dtype, device=self.device)
+            data_labels = torch.empty((num_samples + 1), dtype=torch.long,
+                                      device=self.device)
             data_points[0] = x.to(self.device)
             data_labels[0] = y.to(self.device)
-            ixs = list(np.arange(len(self.rehearsal_ixs)))
-            ixs = [self.rehearsal_ixs[_curr_ix] for _curr_ix in ixs]
-            for ii, v in enumerate(ixs):
-                data_points[ii + 1] = torch.from_numpy(self.latent_dict[v][0]).to(self.device)
-                data_labels[ii + 1] = torch.from_numpy(self.latent_dict[v][1]).to(self.device)
-        else:  # if buffer more than self.replay_samples
-            num_samples = self.replay_samples
-            data_points = torch.empty((num_samples + 1, self.input_shape), dtype=self.dtype).to(self.device)
-            data_labels = torch.empty((num_samples + 1), dtype=torch.long).to(self.device)
-            data_points[0] = x.to(self.device)
-            data_labels[0] = y.to(self.device)
-            ixs = randint(len(self.rehearsal_ixs), num_samples)
-            ixs = [self.rehearsal_ixs[_curr_ix] for _curr_ix in ixs]
-            for ii, v in enumerate(ixs):
-                data_points[ii + 1] = torch.from_numpy(self.latent_dict[v][0]).to(self.device)
-                data_labels[ii + 1] = torch.from_numpy(self.latent_dict[v][1]).to(self.device)
+            # single device-side gather instead of one H2D copy per row
+            torch.index_select(self.buf_x, 0, rows, out=data_points[1:])
+            torch.index_select(self.buf_y, 0, rows, out=data_labels[1:])
 
         with torch.autocast(device_type=self.device, dtype=torch.float16, enabled=self.use_fp16):
             output = self.classifier(data_points)
@@ -156,15 +168,20 @@ class StreamingSoftmax(nn.Module):
         self.num_updates += 1
         self.cK[y] += 1
 
-        item_ix_np = item_ix
-        label_np = y.cpu().numpy()
-        # buffer stored in np_dtype (FP16 halves buffer memory when use_fp16=True)
-        data_np = x.cpu().numpy().astype(self.np_dtype, copy=False)
+        item_key = int(item_ix) if item_ix is not None else self.num_updates
+        label_int = int(y.item())
 
-        # add new instance to buffer
-        self.latent_dict[item_ix_np] = [data_np, label_np]
-        self.rehearsal_ixs.append(item_ix_np)
-        self.class_id_to_item_ix_dict[int(label_np.item())].append(item_ix_np)
+        # add new instance to buffer (stored on device in self.dtype)
+        if self.free_rows:
+            row = self.free_rows.pop()
+        else:
+            row = self._next_row
+            self._next_row += 1
+        self.buf_x[row] = x.to(self.device).to(self.dtype).view(-1)
+        self.buf_y[row] = label_int
+        self.item_ix_to_row[item_key] = row
+        self.rehearsal_ixs.append(item_key)
+        self.class_id_to_item_ix_dict[label_int].append(item_key)
 
         # if buffer is full, randomly replace previous example from class with most samples
         if len(self.rehearsal_ixs) >= self.max_buffer_size:
@@ -175,8 +192,16 @@ class StreamingSoftmax(nn.Module):
 
             # remove the random_item_ix from all buffer references
             max_class_list.remove(rand_item_ix)
-            self.latent_dict.pop(rand_item_ix)
+            self.free_rows.append(self.item_ix_to_row.pop(rand_item_ix))
             self.rehearsal_ixs.remove(rand_item_ix)
+
+    def reset_buffer(self):
+        """Empty the replay buffer (used by the benchmark harness after warmup)."""
+        self.item_ix_to_row.clear()
+        self.free_rows.clear()
+        self._next_row = 0
+        self.rehearsal_ixs.clear()
+        self.class_id_to_item_ix_dict.clear()
 
     @torch.no_grad()
     def predict(self, X, return_probas=False):
