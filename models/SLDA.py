@@ -6,8 +6,12 @@ Key constructor flags:
   streaming_update_sigma=True   → Standard SLDA (updates Σ each step) [Table 1]
   streaming_update_sigma=False  → SLDA Frozen Σ (fixed covariance) [Table 1]
   streaming_update_lambda=True  → Lazy Λ=inv(Σ) recomputed every lambda_update_period steps
-  use_fp16=True                 → FP16 storage/matmuls (Tensor Cores); Σ is upcast to
-                                  FP32 for the matrix inverse, Λ downcast back to FP16
+  use_fp16=True                 → FP16 GEMMs (Tensor Cores) with FP32 statistics state.
+                                  Σ/Λ/μ stay FP32: accumulating Σ in FP16 stalls once the
+                                  1/n increments drop below FP16 resolution and collapses
+                                  accuracy (measured in experiments/slda_fp16_gate.py).
+                                  FP16 is applied to the fit outer product (FP32 accumulate)
+                                  and the predict score GEMM only.
 
 Changes vs original Embedded-CL:
   - `fit()` accepts a step index argument (ignored, for interface consistency).
@@ -51,29 +55,29 @@ class StreamingLDA(nn.Module):
         self.streaming_update_lambda = streaming_update_lambda
         self.lambda_update_period = lambda_update_period
         self.use_fp16 = use_fp16
-        self.dtype = torch.float16 if use_fp16 else torch.float32
 
         # feature extraction backbone
         self.backbone = backbone
         if backbone is not None:
             self.backbone = backbone.eval().to(device)
 
-        # setup weights for SLDA; contiguous layout for efficient GEMM
-        self.muK = torch.zeros((num_classes, input_shape), dtype=self.dtype, device=self.device).contiguous()
-        self.cK = torch.zeros(num_classes, dtype=self.dtype, device=self.device).contiguous()
-        self.Sigma = torch.eye(input_shape, dtype=self.dtype, device=self.device).contiguous()  # covariance
+        # setup weights for SLDA; contiguous layout for efficient GEMM.
+        # Statistics state is ALWAYS FP32: the Sigma recursion's per-step
+        # relative increment scales as 1/n, which FP16 rounds to zero once n
+        # approaches 2^11 (verified failure: experiments/slda_fp16_gate.py).
+        self.muK = torch.zeros((num_classes, input_shape), dtype=torch.float32, device=self.device).contiguous()
+        self.cK = torch.zeros(num_classes, dtype=torch.float32, device=self.device).contiguous()
+        self.Sigma = torch.eye(input_shape, dtype=torch.float32, device=self.device).contiguous()  # covariance
         self.num_updates = 0
         self.Lambda = torch.zeros_like(self.Sigma).contiguous()
         self.prev_num_updates = -1
 
     def _compute_lambda(self):
-        """Λ = inv((1-s)Σ + sI). Inverse runs in FP32 (linalg.inv lacks FP16
-        support); result is cast back to self.dtype."""
-        Sigma_fp32 = self.Sigma.float()
+        """Λ = inv((1-s)Σ + sI), in FP32."""
         Lambda_fp32 = torch.linalg.inv(
-            (1 - self.shrinkage_param) * Sigma_fp32 +
+            (1 - self.shrinkage_param) * self.Sigma +
             self.shrinkage_param * torch.eye(self.input_shape, dtype=torch.float32, device=self.device))
-        return Lambda_fp32.to(self.dtype).contiguous()
+        return Lambda_fp32.contiguous()
 
     @torch.no_grad()
     def fit(self, x, y, item_ix):
@@ -84,7 +88,7 @@ class StreamingLDA(nn.Module):
         :param y: a torch tensor of the input label
         :return: None
         """
-        x = x.to(self.device).to(self.dtype)
+        x = x.to(self.device).float()
         y = y.long().to(self.device)
 
         # make sure things are the right shape
@@ -96,7 +100,13 @@ class StreamingLDA(nn.Module):
         # covariance updates
         if self.streaming_update_sigma:
             x_minus_mu = (x - self.muK[y])
-            mult = torch.matmul(x_minus_mu.transpose(1, 0), x_minus_mu)
+            if self.use_fp16:
+                # FP16 GEMM for the fresh outer product (Tensor Cores);
+                # accumulation into Sigma stays FP32
+                h = x_minus_mu.to(torch.float16)
+                mult = torch.matmul(h.transpose(1, 0), h).float()
+            else:
+                mult = torch.matmul(x_minus_mu.transpose(1, 0), x_minus_mu)
             delta = mult * self.num_updates / (self.num_updates + 1)
             self.Sigma = (self.num_updates * self.Sigma + delta) / (
                     self.num_updates + 1)
@@ -122,7 +132,7 @@ class StreamingLDA(nn.Module):
         of predictions returned
         :return: the test predictions or probabilities
         """
-        X = X.to(self.device).to(self.dtype)
+        X = X.to(self.device)
 
         # compute/load Lambda matrix
         if (not self.streaming_update_lambda) and (self.prev_num_updates != self.num_updates):
@@ -131,13 +141,17 @@ class StreamingLDA(nn.Module):
             self.prev_num_updates = self.num_updates
         Lambda = self.Lambda
 
-        # parameters for predictions
+        # parameters for predictions (FP32; weight formation from FP32 state)
         M = self.muK.transpose(1, 0)
         W = torch.matmul(Lambda, M)
         c = 0.5 * torch.sum(M * W, dim=0)
 
         # loop in mini-batches over test samples
-        scores = torch.matmul(X, W) - c
+        if self.use_fp16:
+            # FP16 score GEMM (Tensor Cores); bias and masking in FP32
+            scores = torch.matmul(X.to(torch.float16), W.to(torch.float16)).float() - c
+        else:
+            scores = torch.matmul(X.float(), W) - c
 
         not_visited_ix = torch.where(self.cK == 0)[0]
         min_col = torch.min(scores, dim=1)[0].unsqueeze(0) - 1
@@ -160,7 +174,7 @@ class StreamingLDA(nn.Module):
 
             # fit SLDA one example at a time
             for x, y in zip(batch_x_feat, batch_y):
-                self.fit(x.cpu(), y.view(1, ), None)
+                self.fit(x, y.view(1, ), None)
 
     @torch.no_grad()
     def evaluate_(self, test_loader):
@@ -209,9 +223,9 @@ class StreamingLDA(nn.Module):
         # load parameters
         d = torch.load(os.path.join(save_file))
         print('\nloading ckpt from: %s' % save_file)
-        self.muK = d['muK'].to(self.device).to(self.dtype)
-        self.cK = d['cK'].to(self.device).to(self.dtype)
-        self.Sigma = d['Sigma'].to(self.device).to(self.dtype)
+        self.muK = d['muK'].to(self.device).float()
+        self.cK = d['cK'].to(self.device).float()
+        self.Sigma = d['Sigma'].to(self.device).float()
         self.num_updates = d['num_updates']
 
 
@@ -229,8 +243,9 @@ class RankOneSLDA(nn.Module):
     predictions under an equivalent regularization parameterization: a fixed
     ridge S + lambda*I in place of Hayes' shrinkage (1-eps)*Sigma + eps*I.
 
-    The discriminant weights W = Lambda @ muK^T are maintained incrementally
-    alongside Lambda, so predictions are always per-sample fresh.
+    The discriminant weights W = Lambda @ muK^T and the bias b = 0.5*diag(muK W)
+    are maintained incrementally alongside Lambda, so predictions are always
+    per-sample fresh and predict is a single dK GEMM.
 
     ridge_param default (1.0) was selected once on a held-out class order
     (see experiments/slda_regularization_equivalence.py); tests are
@@ -238,7 +253,7 @@ class RankOneSLDA(nn.Module):
     """
 
     def __init__(self, input_shape, num_classes, backbone=None, ridge_param=1.0,
-                 device='cpu', dtype=torch.float32):
+                 device='cpu', dtype=torch.float32, debug_checks=True):
         """
         Init function for the RankOneSLDA model.
         :param input_shape: feature dimension d
@@ -246,6 +261,11 @@ class RankOneSLDA(nn.Module):
         :param ridge_param: fixed ridge lambda on the scatter matrix
         :param dtype: dtype of the maintained state (float64 available as
                       drift insurance; arithmetic cost is unchanged in order)
+        :param debug_checks: track min_denom and assert the Sherman-Morrison
+                      denominator >= 1 every step. Forces a host sync per fit,
+                      so benchmark runs pass False (instrumentation is excluded
+                      from measured cost); accuracy runs and tests keep True.
+                      The arithmetic is identical in both modes.
         """
         super(RankOneSLDA, self).__init__()
 
@@ -254,6 +274,7 @@ class RankOneSLDA(nn.Module):
         self.input_shape = input_shape
         self.num_classes = num_classes
         self.ridge_param = ridge_param
+        self.debug_checks = debug_checks
 
         # feature extraction backbone
         self.backbone = backbone
@@ -267,9 +288,20 @@ class RankOneSLDA(nn.Module):
         self.cK = torch.zeros(num_classes).to(self.device)
         # W = Lambda @ muK.T, maintained incrementally
         self.W = torch.zeros((d, num_classes), dtype=dtype).to(self.device)
+        # b = 0.5 * diag(muK @ W), maintained incrementally
+        self.b = torch.zeros(num_classes, dtype=dtype, device=self.device)
         self.num_updates = 0
         # diagnostic: analytically denom >= 1 every step; tracked for tests
         self.min_denom = float('inf')
+
+        # Preallocated work buffers: fit is allocation-free in steady state
+        # (no per-sample d^2 temporaries; stabilizes tail latency)
+        self._v = torch.empty(d, dtype=dtype, device=self.device)
+        self._u = torch.empty(d, dtype=dtype, device=self.device)
+        self._s = torch.empty(num_classes, dtype=dtype, device=self.device)
+        self._bs = torch.empty(num_classes, dtype=dtype, device=self.device)
+        self._uu = torch.empty((d, d), dtype=dtype, device=self.device)
+        self._us = torch.empty((d, num_classes), dtype=dtype, device=self.device)
 
     @torch.no_grad()
     def fit(self, x, y, item_ix=None):
@@ -285,36 +317,55 @@ class RankOneSLDA(nn.Module):
         y = int(y)
 
         # 1. deviation from the *pre-update* class mean
-        v = x - self.muK[y]
+        v = torch.sub(x, self.muK[y], out=self._v)
 
         # 2. Hayes' scatter recursion S <- S + c*v*v^T uses the *global*
         #    update counter; first-ever sample gives c = 0 (no precision change)
         c = self.num_updates / (self.num_updates + 1)
 
-        u = self.Lambda @ v
+        u = torch.mv(self.Lambda, v, out=self._u)
         denom = 1.0 + c * torch.dot(v, u)
-        self.min_denom = min(self.min_denom, denom.item())
-        if denom < 1.0 - 1e-6:
-            raise RuntimeError(
-                f'Sherman-Morrison denom = {denom.item()} < 1 at update '
-                f'{self.num_updates}: implementation or numerical error')
+        if self.debug_checks:
+            self.min_denom = min(self.min_denom, denom.item())
+            if denom < 1.0 - 1e-6:
+                raise RuntimeError(
+                    f'Sherman-Morrison denom = {denom.item()} < 1 at update '
+                    f'{self.num_updates}: implementation or numerical error')
 
         if c > 0:
-            # 3. Sherman-Morrison patch of Lambda for S <- S + c*v*v^T
+            # 3. Sherman-Morrison patch of Lambda for S <- S + c*v*v^T.
+            #    The subtracted term beta*u*u^T is bitwise symmetric, so Lambda
+            #    stays exactly symmetric by induction (the former explicit
+            #    (L + L^T)/2 step was an exact no-op and is dropped).
             beta = c / denom
-            self.Lambda -= beta * torch.outer(u, u)
-            self.Lambda = (self.Lambda + self.Lambda.t()) / 2
+            torch.outer(u, u, out=self._uu)
+            self._uu.mul_(beta)
+            self.Lambda.sub_(self._uu)
 
             # 4. weight patch for the Lambda change (all classes, pre-update muK)
-            s = self.muK @ u  # (K,)
-            self.W -= beta * torch.outer(u, s)
+            s = torch.mv(self.muK, u, out=self._s)  # (K,)
+            torch.outer(u, s, out=self._us)
+            self._us.mul_(beta)
+            self.W.sub_(self._us)
+
+            # bias patch: Delta W[:,k] = -beta*s_k*u gives
+            # Delta b_k = 0.5*muK_k . Delta W[:,k] = -0.5*beta*s_k^2
+            torch.mul(s, s, out=self._bs)
+            self._bs.mul_(beta)
+            self.b.sub_(self._bs, alpha=0.5)
 
         # 5. class-mean update
-        self.muK[y] += v / (self.cK[y] + 1)
+        self._v.div_(self.cK[y] + 1)
+        self.muK[y].add_(self._v)
         self.cK[y] += 1
 
         # 6. weight patch for the mean change, using Lambda_new @ v = u / denom
-        self.W[:, y] += u / (denom * self.cK[y])
+        self._u.div_(denom * self.cK[y])
+        self.W[:, y].add_(self._u)
+
+        # bias for class y depends on both the new mean and the new W column;
+        # recompute exactly at O(d) (all other entries are untouched by 5-6)
+        self.b[y] = 0.5 * torch.dot(self.muK[y], self.W[:, y])
 
         # 7.
         self.num_updates += 1
@@ -332,8 +383,8 @@ class RankOneSLDA(nn.Module):
         if len(X.shape) < 2:
             X = X.unsqueeze(0)
 
-        b = 0.5 * torch.sum(self.muK.t() * self.W, dim=0)
-        scores = X @ self.W - b
+        # b is maintained incrementally in fit; predict is a single dK GEMM
+        scores = X @ self.W - self.b
 
         not_visited_ix = torch.where(self.cK == 0)[0]
         min_col = torch.min(scores, dim=1)[0].unsqueeze(0) - 1
@@ -354,7 +405,7 @@ class RankOneSLDA(nn.Module):
                 batch_x_feat = batch_x.to(self.device)
             # fit one example at a time
             for x, y in zip(batch_x_feat, batch_y):
-                self.fit(x.cpu(), y.view(1, ), None)
+                self.fit(x, y.view(1, ), None)
 
     @torch.no_grad()
     def evaluate_(self, test_loader):
@@ -388,6 +439,7 @@ class RankOneSLDA(nn.Module):
         d['cK'] = self.cK.cpu()
         d['Lambda'] = self.Lambda.cpu()
         d['W'] = self.W.cpu()
+        d['b'] = self.b.cpu()
         d['num_updates'] = self.num_updates
         d['ridge_param'] = self.ridge_param
 
@@ -405,5 +457,9 @@ class RankOneSLDA(nn.Module):
         self.cK = d['cK'].to(self.device)
         self.Lambda = d['Lambda'].to(self.device)
         self.W = d['W'].to(self.device)
+        if 'b' in d:
+            self.b = d['b'].to(self.device)
+        else:  # checkpoint from before b was maintained state
+            self.b = 0.5 * torch.sum(self.muK.t() * self.W, dim=0)
         self.num_updates = d['num_updates']
         self.ridge_param = d['ridge_param']
