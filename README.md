@@ -122,7 +122,7 @@ Requires a Jetson Orin Nano with JetPack SDK 6.2.1, PyTorch 2.4.0, and the `jtop
 ```bash
 python benchmarks/benchmark.py \
     --algorithm clp \
-    --data_path data/1shot/X_train_1_shot_10.npy \
+    --data_path data/1shot/X_train_1_shot_10.pt \
     --device_type orin \
     --compute_device cuda
 ```

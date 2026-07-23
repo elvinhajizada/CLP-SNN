@@ -487,7 +487,7 @@ class CLPSNN(nn.Module):
         # Update goodness and decay learning rate only on positive reward
         if r > 0:
             self.goodness[winner_idx] += self.g_inc
-            self.alphas[winner_idx] = 1.0 / self.goodness[winner_idx].item()
+            self.alphas[winner_idx] = 1.0 / max(self.goodness[winner_idx].item(), 1.0)  # Prevent division by zero
 
         if r < 0:
             self.goodness[winner_idx] -= self.g_inc
