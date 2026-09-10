@@ -1,0 +1,804 @@
+==============================================
+OpenLORIS Benchmarking Suite (CLP-SNN Table 1)
+==============================================
+
+Configuration:
+  Data Path: data/1shot/X_train_1_shot_10.pt
+  Logs Path: benchmarks/reports/
+  Feature Size: 1280
+  Num Classes: 40
+  Seed: 10
+  Total Runs: 14
+
+==============================================
+
+[1/14] Running: clp (FP32) on cuda
+----------------------------------------------
+Warming up fit (20 samples)...
+
+============================================================
+Latency Distribution Statistics [fit]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        2.205 ms  <- reported (amortized cost)
+  Std deviation:       0.189 ms
+  Median latency:      2.165 ms
+  Min / Max:           2.094 / 6.674 ms
+  95th / 99th pct:     2.323 / 2.956 ms
+  p95-filtered mean:   2.169 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_1
+Report saved as pickle
+Warming up predict (20 samples)...
+
+============================================================
+Latency Distribution Statistics [predict]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        16.253 ms  <- reported (amortized cost)
+  Std deviation:       0.310 ms
+  Median latency:      16.101 ms
+  Min / Max:           15.810 / 17.954 ms
+  95th / 99th pct:     16.805 / 16.945 ms
+  p95-filtered mean:   16.219 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_2
+Report saved as pickle
+
+============================================================
+Benchmarking completed for CLP (fp32, op=both)
+============================================================
+Model: CLP
+Dataset: X_train_1_shot_10
+C_upd (fit): mean 2205.03 us | median 2165.36 us | p99 2955.81 us over 2390 samples
+C_qry (predict): mean 16253.05 us | median 16100.75 us | p99 16944.78 us over 2390 samples
+Results saved to: benchmarks/reports/
+============================================================
+
+SUCCESS: clp (FP32) on cuda
+
+[2/14] Running: clp (FP32) on cpu
+----------------------------------------------
+Warming up fit (20 samples)...
+
+============================================================
+Latency Distribution Statistics [fit]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        0.972 ms  <- reported (amortized cost)
+  Std deviation:       0.110 ms
+  Median latency:      0.961 ms
+  Min / Max:           0.840 / 2.058 ms
+  95th / 99th pct:     1.049 / 1.668 ms
+  p95-filtered mean:   0.956 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_3
+Report saved as pickle
+Warming up predict (20 samples)...
+
+============================================================
+Latency Distribution Statistics [predict]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        4.929 ms  <- reported (amortized cost)
+  Std deviation:       0.392 ms
+  Median latency:      4.789 ms
+  Min / Max:           4.543 / 6.701 ms
+  95th / 99th pct:     5.918 / 6.359 ms
+  p95-filtered mean:   4.862 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_4
+Report saved as pickle
+
+============================================================
+Benchmarking completed for CLP (fp32, op=both)
+============================================================
+Model: CLP
+Dataset: X_train_1_shot_10
+C_upd (fit): mean 972.39 us | median 960.74 us | p99 1668.37 us over 2390 samples
+C_qry (predict): mean 4928.58 us | median 4789.31 us | p99 6358.87 us over 2390 samples
+Results saved to: benchmarks/reports/
+============================================================
+
+SUCCESS: clp (FP32) on cpu
+
+[3/14] Running: ncm (FP32) on cuda
+----------------------------------------------
+Warming up fit (20 samples)...
+
+============================================================
+Latency Distribution Statistics [fit]:
+============================================================
+Total samples processed: 7200
+Samples used for stats (after skipping first 10): 7190
+  Mean latency:        0.939 ms  <- reported (amortized cost)
+  Std deviation:       0.090 ms
+  Median latency:      0.924 ms
+  Min / Max:           0.687 / 2.228 ms
+  95th / 99th pct:     0.961 / 1.567 ms
+  p95-filtered mean:   0.925 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_5
+Report saved as pickle
+Warming up predict (20 samples)...
+
+============================================================
+Latency Distribution Statistics [predict]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        0.661 ms  <- reported (amortized cost)
+  Std deviation:       0.088 ms
+  Median latency:      0.682 ms
+  Min / Max:           0.418 / 1.401 ms
+  95th / 99th pct:     0.716 / 1.102 ms
+  p95-filtered mean:   0.650 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_6
+Report saved as pickle
+
+============================================================
+Benchmarking completed for NCM (fp32, op=both)
+============================================================
+Model: ncm
+Dataset: X_train_1_shot_10
+C_upd (fit): mean 938.84 us | median 923.81 us | p99 1566.96 us over 7190 samples
+C_qry (predict): mean 660.60 us | median 681.65 us | p99 1102.01 us over 2390 samples
+Results saved to: benchmarks/reports/
+============================================================
+
+SUCCESS: ncm (FP32) on cuda
+
+[4/14] Running: ncm (FP16) on cuda
+----------------------------------------------
+Converting data to FP16 for NCM
+Warming up fit (20 samples)...
+
+============================================================
+Latency Distribution Statistics [fit]:
+============================================================
+Total samples processed: 7200
+Samples used for stats (after skipping first 10): 7190
+  Mean latency:        0.924 ms  <- reported (amortized cost)
+  Std deviation:       0.086 ms
+  Median latency:      0.910 ms
+  Min / Max:           0.874 / 2.207 ms
+  95th / 99th pct:     0.945 / 1.568 ms
+  p95-filtered mean:   0.911 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_7
+Report saved as pickle
+Warming up predict (20 samples)...
+
+============================================================
+Latency Distribution Statistics [predict]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        0.708 ms  <- reported (amortized cost)
+  Std deviation:       0.100 ms
+  Median latency:      0.720 ms
+  Min / Max:           0.424 / 1.470 ms
+  95th / 99th pct:     0.756 / 1.274 ms
+  p95-filtered mean:   0.695 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_8
+Report saved as pickle
+
+============================================================
+Benchmarking completed for NCM (fp16, op=both)
+============================================================
+Model: ncm
+Dataset: X_train_1_shot_10
+C_upd (fit): mean 923.54 us | median 910.21 us | p99 1568.21 us over 7190 samples
+C_qry (predict): mean 708.13 us | median 720.29 us | p99 1274.02 us over 2390 samples
+Results saved to: benchmarks/reports/
+============================================================
+
+SUCCESS: ncm (FP16) on cuda
+
+[5/14] Running: ncm (FP32) on cpu
+----------------------------------------------
+Warming up fit (20 samples)...
+
+============================================================
+Latency Distribution Statistics [fit]:
+============================================================
+Total samples processed: 7200
+Samples used for stats (after skipping first 10): 7190
+  Mean latency:        0.452 ms  <- reported (amortized cost)
+  Std deviation:       0.072 ms
+  Median latency:      0.444 ms
+  Min / Max:           0.410 / 2.167 ms
+  95th / 99th pct:     0.473 / 0.502 ms
+  p95-filtered mean:   0.444 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_9
+Report saved as pickle
+Warming up predict (20 samples)...
+
+============================================================
+Latency Distribution Statistics [predict]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        0.281 ms  <- reported (amortized cost)
+  Std deviation:       0.056 ms
+  Median latency:      0.272 ms
+  Min / Max:           0.255 / 1.094 ms
+  95th / 99th pct:     0.318 / 0.459 ms
+  p95-filtered mean:   0.274 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_10
+Report saved as pickle
+
+============================================================
+Benchmarking completed for NCM (fp32, op=both)
+============================================================
+Model: ncm
+Dataset: X_train_1_shot_10
+C_upd (fit): mean 452.26 us | median 443.62 us | p99 501.72 us over 7190 samples
+C_qry (predict): mean 281.47 us | median 271.65 us | p99 458.53 us over 2390 samples
+Results saved to: benchmarks/reports/
+============================================================
+
+SUCCESS: ncm (FP32) on cpu
+
+[6/14] Running: ncm (FP32, --compile) on cuda
+----------------------------------------------
+--compile: raising warmup from 20 to 50 samples (compilation + CUDA Graph capture)
+Warming up fit (50 samples)...
+Traceback (most recent call last):
+  File "/lecampos/CLP-SNN/benchmarks/benchmark.py", line 476, in <module>
+    warmup(op_fn, phase)
+  File "/lecampos/CLP-SNN/benchmarks/benchmark.py", line 318, in warmup
+    op_fn(x, y, idx)
+  File "/lecampos/CLP-SNN/benchmarks/benchmark.py", line 296, in fit_op
+    classifier.fit(x.view(feature_size,), y.view(1,), idx)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/eval_frame.py", line 433, in _fn
+    return fn(*args, **kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/convert_frame.py", line 1116, in __call__
+    return self._torchdynamo_orig_callable(
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/convert_frame.py", line 948, in __call__
+    result = self._inner_convert(
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/convert_frame.py", line 472, in __call__
+    return _compile(
+  File "/usr/local/lib/python3.10/dist-packages/torch/_utils_internal.py", line 84, in wrapper_function
+    return StrobelightCompileTimeProfiler.profile_compile_time(
+  File "/usr/local/lib/python3.10/dist-packages/torch/_strobelight/compile_time_profiler.py", line 129, in profile_compile_time
+    return func(*args, **kwargs)
+  File "/usr/lib/python3.10/contextlib.py", line 79, in inner
+    return func(*args, **kwds)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/convert_frame.py", line 817, in _compile
+    guarded_code = compile_inner(code, one_graph, hooks, transform)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/utils.py", line 231, in time_wrapper
+    r = func(*args, **kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/convert_frame.py", line 636, in compile_inner
+    out_code = transform_code_object(code, transform)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/bytecode_transformation.py", line 1185, in transform_code_object
+    transformations(instructions, code_options)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/convert_frame.py", line 178, in _fn
+    return fn(*args, **kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/convert_frame.py", line 582, in transform
+    tracer.run()
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/symbolic_convert.py", line 2451, in run
+    super().run()
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/symbolic_convert.py", line 893, in run
+    while self.step():
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/symbolic_convert.py", line 805, in step
+    self.dispatch_table[inst.opcode](self, inst)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/symbolic_convert.py", line 2642, in RETURN_VALUE
+    self._return(inst)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/symbolic_convert.py", line 2627, in _return
+    self.output.compile_subgraph(
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/output_graph.py", line 1123, in compile_subgraph
+    self.compile_and_call_fx_graph(tx, pass2.graph_output_vars(), root)
+  File "/usr/lib/python3.10/contextlib.py", line 79, in inner
+    return func(*args, **kwds)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/output_graph.py", line 1318, in compile_and_call_fx_graph
+    compiled_fn = self.call_user_compiler(gm)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/utils.py", line 231, in time_wrapper
+    r = func(*args, **kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/output_graph.py", line 1409, in call_user_compiler
+    raise BackendCompilerFailed(self.compiler_fn, e).with_traceback(
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/output_graph.py", line 1390, in call_user_compiler
+    compiled_fn = compiler_fn(gm, self.example_inputs())
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/repro/after_dynamo.py", line 129, in __call__
+    compiled_gm = compiler_fn(gm, example_inputs)
+  File "/usr/local/lib/python3.10/dist-packages/torch/__init__.py", line 1951, in __call__
+    return compile_fx(model_, inputs_, config_patches=self.config)
+  File "/usr/lib/python3.10/contextlib.py", line 79, in inner
+    return func(*args, **kwds)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_inductor/compile_fx.py", line 1261, in compile_fx
+    return compile_fx(
+  File "/usr/lib/python3.10/contextlib.py", line 79, in inner
+    return func(*args, **kwds)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_inductor/compile_fx.py", line 1505, in compile_fx
+    return aot_autograd(
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/backends/common.py", line 69, in __call__
+    cg = aot_module_simplified(gm, example_inputs, **self.kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_functorch/aot_autograd.py", line 954, in aot_module_simplified
+    compiled_fn, _ = create_aot_dispatcher_function(
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/utils.py", line 231, in time_wrapper
+    r = func(*args, **kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_functorch/aot_autograd.py", line 687, in create_aot_dispatcher_function
+    compiled_fn, fw_metadata = compiler_fn(
+  File "/usr/local/lib/python3.10/dist-packages/torch/_functorch/_aot_autograd/jit_compile_runtime_wrappers.py", line 168, in aot_dispatch_base
+    compiled_fw = compiler(fw_module, updated_flat_args)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/utils.py", line 231, in time_wrapper
+    r = func(*args, **kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_inductor/compile_fx.py", line 1410, in fw_compiler_base
+    return inner_compile(
+  File "/usr/lib/python3.10/contextlib.py", line 79, in inner
+    return func(*args, **kwds)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/repro/after_aot.py", line 84, in debug_wrapper
+    inner_compiled_fn = compiler_fn(gm, example_inputs)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_inductor/debug.py", line 304, in inner
+    return fn(*args, **kwargs)
+  File "/usr/lib/python3.10/contextlib.py", line 79, in inner
+    return func(*args, **kwds)
+  File "/usr/lib/python3.10/contextlib.py", line 79, in inner
+    return func(*args, **kwds)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/utils.py", line 231, in time_wrapper
+    r = func(*args, **kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_inductor/compile_fx.py", line 527, in compile_fx_inner
+    compiled_graph = fx_codegen_and_compile(
+  File "/usr/lib/python3.10/contextlib.py", line 79, in inner
+    return func(*args, **kwds)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_inductor/compile_fx.py", line 831, in fx_codegen_and_compile
+    compiled_fn = graph.compile_to_fn()
+  File "/usr/local/lib/python3.10/dist-packages/torch/_inductor/graph.py", line 1749, in compile_to_fn
+    return self.compile_to_module().call
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/utils.py", line 231, in time_wrapper
+    r = func(*args, **kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_inductor/graph.py", line 1678, in compile_to_module
+    self.codegen_with_cpp_wrapper() if self.cpp_wrapper else self.codegen()
+  File "/usr/local/lib/python3.10/dist-packages/torch/_inductor/graph.py", line 1634, in codegen
+    self.scheduler = Scheduler(self.buffers)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/utils.py", line 231, in time_wrapper
+    r = func(*args, **kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_inductor/scheduler.py", line 1364, in __init__
+    self.nodes = [self.create_scheduler_node(n) for n in nodes]
+  File "/usr/local/lib/python3.10/dist-packages/torch/_inductor/scheduler.py", line 1364, in <listcomp>
+    self.nodes = [self.create_scheduler_node(n) for n in nodes]
+  File "/usr/local/lib/python3.10/dist-packages/torch/_inductor/scheduler.py", line 1462, in create_scheduler_node
+    return SchedulerNode(self, node)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_inductor/scheduler.py", line 731, in __init__
+    self._compute_attrs()
+  File "/usr/local/lib/python3.10/dist-packages/torch/_inductor/scheduler.py", line 742, in _compute_attrs
+    group_fn = self.scheduler.get_backend(self.node.get_device()).group_fn
+  File "/usr/local/lib/python3.10/dist-packages/torch/_inductor/scheduler.py", line 2663, in get_backend
+    self.backends[device] = self.create_backend(device)
+  File "/usr/local/lib/python3.10/dist-packages/torch/_inductor/scheduler.py", line 2655, in create_backend
+    raise RuntimeError(
+torch._dynamo.exc.BackendCompilerFailed: backend='inductor' raised:
+RuntimeError: Cannot find a working triton installation. More information on installing Triton can be found at https://github.com/openai/triton
+
+Set TORCH_LOGS="+dynamo" and TORCHDYNAMO_VERBOSE=1 for more information
+
+
+You can suppress this exception and fall back to eager by setting:
+    import torch._dynamo
+    torch._dynamo.config.suppress_errors = True
+
+FAILED: ncm (FP32, --compile) on cuda
+[7/14] Running: replay (FP32) on cuda
+----------------------------------------------
+Warming up fit (20 samples)...
+Replay buffer cleared after warmup
+
+============================================================
+Latency Distribution Statistics [fit]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        2.412 ms  <- reported (amortized cost)
+  Std deviation:       1.678 ms
+  Median latency:      2.350 ms
+  Min / Max:           2.103 / 83.935 ms
+  95th / 99th pct:     2.636 / 2.985 ms
+  p95-filtered mean:   2.347 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_11
+Report saved as pickle
+Warming up predict (20 samples)...
+
+============================================================
+Latency Distribution Statistics [predict]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        0.696 ms  <- reported (amortized cost)
+  Std deviation:       0.085 ms
+  Median latency:      0.714 ms
+  Min / Max:           0.474 / 1.644 ms
+  95th / 99th pct:     0.747 / 0.787 ms
+  p95-filtered mean:   0.687 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_12
+Report saved as pickle
+
+============================================================
+Benchmarking completed for REPLAY (fp32, op=both)
+============================================================
+Model: replay
+Dataset: X_train_1_shot_10
+C_upd (fit): mean 2411.88 us | median 2350.11 us | p99 2984.55 us over 2390 samples
+C_qry (predict): mean 696.17 us | median 713.82 us | p99 787.46 us over 2390 samples
+Results saved to: benchmarks/reports/
+============================================================
+
+SUCCESS: replay (FP32) on cuda
+
+[8/14] Running: replay (FP16) on cuda
+----------------------------------------------
+Converting data to FP16 for REPLAY
+Warming up fit (20 samples)...
+Replay buffer cleared after warmup
+
+============================================================
+Latency Distribution Statistics [fit]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        2.541 ms  <- reported (amortized cost)
+  Std deviation:       0.181 ms
+  Median latency:      2.507 ms
+  Min / Max:           2.265 / 5.045 ms
+  95th / 99th pct:     2.616 / 3.339 ms
+  p95-filtered mean:   2.503 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_13
+Report saved as pickle
+Warming up predict (20 samples)...
+
+============================================================
+Latency Distribution Statistics [predict]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        0.788 ms  <- reported (amortized cost)
+  Std deviation:       0.102 ms
+  Median latency:      0.794 ms
+  Min / Max:           0.586 / 1.853 ms
+  95th / 99th pct:     0.829 / 1.467 ms
+  p95-filtered mean:   0.774 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_14
+Report saved as pickle
+
+============================================================
+Benchmarking completed for REPLAY (fp16, op=both)
+============================================================
+Model: replay
+Dataset: X_train_1_shot_10
+C_upd (fit): mean 2541.24 us | median 2506.58 us | p99 3339.41 us over 2390 samples
+C_qry (predict): mean 788.04 us | median 793.87 us | p99 1466.54 us over 2390 samples
+Results saved to: benchmarks/reports/
+============================================================
+
+SUCCESS: replay (FP16) on cuda
+
+[9/14] Running: replay (FP32) on cpu
+----------------------------------------------
+Warming up fit (20 samples)...
+Replay buffer cleared after warmup
+
+============================================================
+Latency Distribution Statistics [fit]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        5.348 ms  <- reported (amortized cost)
+  Std deviation:       2.533 ms
+  Median latency:      5.135 ms
+  Min / Max:           2.011 / 12.708 ms
+  95th / 99th pct:     8.818 / 10.674 ms
+  p95-filtered mean:   5.117 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_15
+Report saved as pickle
+Warming up predict (20 samples)...
+
+============================================================
+Latency Distribution Statistics [predict]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        0.398 ms  <- reported (amortized cost)
+  Std deviation:       0.071 ms
+  Median latency:      0.388 ms
+  Min / Max:           0.366 / 1.285 ms
+  95th / 99th pct:     0.419 / 0.489 ms
+  p95-filtered mean:   0.389 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_16
+Report saved as pickle
+
+============================================================
+Benchmarking completed for REPLAY (fp32, op=both)
+============================================================
+Model: replay
+Dataset: X_train_1_shot_10
+C_upd (fit): mean 5347.69 us | median 5135.22 us | p99 10674.26 us over 2390 samples
+C_qry (predict): mean 397.52 us | median 388.48 us | p99 489.07 us over 2390 samples
+Results saved to: benchmarks/reports/
+============================================================
+
+SUCCESS: replay (FP32) on cpu
+
+[10/14] Running: slda (FP32) on cuda
+----------------------------------------------
+Warming up fit (20 samples)...
+
+============================================================
+Latency Distribution Statistics [fit]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        22.921 ms  <- reported (amortized cost)
+  Std deviation:       0.119 ms
+  Median latency:      22.932 ms
+  Min / Max:           22.784 / 23.699 ms
+  95th / 99th pct:     22.991 / 23.495 ms
+  p95-filtered mean:   22.899 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_17
+Report saved as pickle
+Warming up predict (20 samples)...
+
+============================================================
+Latency Distribution Statistics [predict]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        0.915 ms  <- reported (amortized cost)
+  Std deviation:       0.084 ms
+  Median latency:      0.912 ms
+  Min / Max:           0.756 / 1.758 ms
+  95th / 99th pct:     0.949 / 1.456 ms
+  p95-filtered mean:   0.903 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_18
+Report saved as pickle
+
+============================================================
+Benchmarking completed for SLDA (fp32, op=both)
+============================================================
+Model: SLDA-naive-rho1
+Dataset: X_train_1_shot_10
+C_upd (fit): mean 22920.66 us | median 22932.21 us | p99 23494.74 us over 2390 samples
+C_qry (predict): mean 914.59 us | median 912.24 us | p99 1456.24 us over 2390 samples
+Results saved to: benchmarks/reports/
+============================================================
+
+SUCCESS: slda (FP32) on cuda
+
+[11/14] Running: slda (FP16) on cuda
+----------------------------------------------
+Converting data to FP16 for SLDA
+Warming up fit (20 samples)...
+
+============================================================
+Latency Distribution Statistics [fit]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        23.194 ms  <- reported (amortized cost)
+  Std deviation:       0.071 ms
+  Median latency:      23.204 ms
+  Min / Max:           23.041 / 23.880 ms
+  95th / 99th pct:     23.239 / 23.536 ms
+  p95-filtered mean:   23.186 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_19
+Report saved as pickle
+Warming up predict (20 samples)...
+
+============================================================
+Latency Distribution Statistics [predict]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        1.027 ms  <- reported (amortized cost)
+  Std deviation:       0.081 ms
+  Median latency:      1.013 ms
+  Min / Max:           0.895 / 1.961 ms
+  95th / 99th pct:     1.050 / 1.563 ms
+  p95-filtered mean:   1.014 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_20
+Report saved as pickle
+
+============================================================
+Benchmarking completed for SLDA (fp16, op=both)
+============================================================
+Model: SLDA-naive-rho1
+Dataset: X_train_1_shot_10
+C_upd (fit): mean 23194.07 us | median 23203.78 us | p99 23536.21 us over 2390 samples
+C_qry (predict): mean 1026.67 us | median 1013.09 us | p99 1563.09 us over 2390 samples
+Results saved to: benchmarks/reports/
+============================================================
+
+SUCCESS: slda (FP16) on cuda
+
+[12/14] Running: slda (FP32) on cpu
+----------------------------------------------
+Warming up fit (20 samples)...
+
+============================================================
+Latency Distribution Statistics [fit]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        69.685 ms  <- reported (amortized cost)
+  Std deviation:       6.659 ms
+  Median latency:      67.479 ms
+  Min / Max:           62.623 / 153.412 ms
+  95th / 99th pct:     82.439 / 88.275 ms
+  p95-filtered mean:   68.632 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_21
+Report saved as pickle
+Warming up predict (20 samples)...
+
+============================================================
+Latency Distribution Statistics [predict]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        6.656 ms  <- reported (amortized cost)
+  Std deviation:       1.279 ms
+  Median latency:      7.066 ms
+  Min / Max:           3.941 / 18.288 ms
+  95th / 99th pct:     8.294 / 9.229 ms
+  p95-filtered mean:   6.531 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_22
+Report saved as pickle
+
+============================================================
+Benchmarking completed for SLDA (fp32, op=both)
+============================================================
+Model: SLDA-naive-rho1
+Dataset: X_train_1_shot_10
+C_upd (fit): mean 69685.25 us | median 67478.88 us | p99 88275.20 us over 2390 samples
+C_qry (predict): mean 6655.53 us | median 7066.42 us | p99 9229.05 us over 2390 samples
+Results saved to: benchmarks/reports/
+============================================================
+
+SUCCESS: slda (FP32) on cpu
+
+[13/14] Running: slda_rank1 (FP32) on cuda
+----------------------------------------------
+Warming up fit (20 samples)...
+
+============================================================
+Latency Distribution Statistics [fit]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        1.479 ms  <- reported (amortized cost)
+  Std deviation:       0.119 ms
+  Median latency:      1.458 ms
+  Min / Max:           1.409 / 2.732 ms
+  95th / 99th pct:     1.509 / 2.191 ms
+  p95-filtered mean:   1.458 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_23
+Report saved as pickle
+Warming up predict (20 samples)...
+
+============================================================
+Latency Distribution Statistics [predict]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        0.667 ms  <- reported (amortized cost)
+  Std deviation:       0.087 ms
+  Median latency:      0.673 ms
+  Min / Max:           0.466 / 1.836 ms
+  95th / 99th pct:     0.703 / 1.242 ms
+  p95-filtered mean:   0.657 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_24
+Report saved as pickle
+
+============================================================
+Benchmarking completed for SLDA_RANK1 (fp32, op=both)
+============================================================
+Model: SLDA-rank1
+Dataset: X_train_1_shot_10
+C_upd (fit): mean 1479.43 us | median 1457.82 us | p99 2191.48 us over 2390 samples
+C_qry (predict): mean 666.88 us | median 672.58 us | p99 1242.16 us over 2390 samples
+Results saved to: benchmarks/reports/
+============================================================
+
+SUCCESS: slda_rank1 (FP32) on cuda
+
+[14/14] Running: slda_rank1 (FP32) on cpu
+----------------------------------------------
+Warming up fit (20 samples)...
+
+============================================================
+Latency Distribution Statistics [fit]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        5.442 ms  <- reported (amortized cost)
+  Std deviation:       1.384 ms
+  Median latency:      4.850 ms
+  Min / Max:           2.183 / 10.798 ms
+  95th / 99th pct:     7.808 / 9.239 ms
+  p95-filtered mean:   5.271 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_25
+Report saved as pickle
+Warming up predict (20 samples)...
+
+============================================================
+Latency Distribution Statistics [predict]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        0.301 ms  <- reported (amortized cost)
+  Std deviation:       0.042 ms
+  Median latency:      0.296 ms
+  Min / Max:           0.274 / 0.958 ms
+  95th / 99th pct:     0.324 / 0.345 ms
+  p95-filtered mean:   0.297 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports/exp_26
+Report saved as pickle
+
+============================================================
+Benchmarking completed for SLDA_RANK1 (fp32, op=both)
+============================================================
+Model: SLDA-rank1
+Dataset: X_train_1_shot_10
+C_upd (fit): mean 5441.98 us | median 4850.10 us | p99 9239.07 us over 2390 samples
+C_qry (predict): mean 301.32 us | median 296.35 us | p99 344.85 us over 2390 samples
+Results saved to: benchmarks/reports/
+============================================================
+
+SUCCESS: slda_rank1 (FP32) on cpu
+
+==============================================
+OpenLORIS Benchmarking Complete!
+==============================================
+Total runs: 14
+Successful: 13
+Failed: 1
+
+Failed runs:
+  - ncm (FP32, --compile) on cuda
