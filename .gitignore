@@ -44,3 +44,9 @@ images/acc_trend_1shot_baselines.png
 /nmi-manuscript-integration.md
 /analysis/ocl_cost_analysis.md
 /nmi-benchmark-upgrades.md
+
+# Generated benchmark tables (regenerate from benchmarks/reports/)
+benchmarks/*.pkl
+
+# Inbox for archives received from the benchmarking device
+/results/
