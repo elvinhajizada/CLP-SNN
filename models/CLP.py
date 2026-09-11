@@ -72,11 +72,18 @@ class ContinuallyLearningPrototypes(nn.Module):
         # setup weights for CLP
         self.prototypes_ = torch.zeros(self.n_protos, self.feature_size).to(self.device)
         self.proto_labels_ = -1 * torch.ones((self.n_protos, 1)).long().to(self.device)
-        self.alphas_ = self.alpha_init * torch.ones((self.n_protos, 1)).to(self.device)
         self.sim_th_ = self.sim_th_init * torch.ones((self.n_protos, 1)).to(self.device)
-        self.goodness_ = torch.ones((self.n_protos, 1)).to(self.device)
+        # Per-prototype scalars (learning rate, goodness) are only ever read
+        # and written one slot at a time, never in a vectorised device op, so
+        # they live on the host: a 0-dim CPU tensor used in a CUDA op is passed
+        # as a kernel scalar (no copy, no host-device sync) and the float32
+        # arithmetic is identical to the former on-device broadcast
+        self.alphas_ = self.alpha_init * torch.ones((self.n_protos, 1))
+        self.goodness_ = torch.ones((self.n_protos, 1))
         self.classes_ = []
         self.next_alloc_id_ = 0
+        self._bind_host_state()
+        self.mistaken_proto_inds_ = []
 
         self.n_outlier = 0
         self.n_error = 0
@@ -96,169 +103,195 @@ class ContinuallyLearningPrototypes(nn.Module):
         y = y.long().to(self.device)
 
         x = x[None, :]
+        x0 = x[0]  # (d,) view; row updates operate on views of this shape
 
-        self.mistaken_proto_inds_ = []  # inds of protos that made incorrect inferences for current sample
-        n_mistakes = 0
-        # y = torch.tensor(y).float()
-        # x = torch.tensor(x).float()
-
-        # if self.sim_metric == 'dot_product':  # normalize x, if we use dot product similarity
-        #     x = x / norm(x, 2)
-        while True:
-            inds_sorted = 0
-            sims_sorted = 0
-            # Similarities against allocated prototypes only (unallocated
-            # slots are zero vectors: sims exactly 0, always below threshold,
-            # so excluding them is behavior-identical and saves (P - M) * d
-            # MACs per fit)
-            n_alloc = self._n_allocated()
-            similarities = self._calc_similarities(x, n_alloc)
-            sims = similarities.clone().detach()
-
-            # Identify prototypes with similarity below threshold (failed threshold check)
+        # Similarities against allocated prototypes only (unallocated slots
+        # are zero vectors: sims exactly 0, always below threshold, so
+        # excluding them is behavior-identical and saves (P - M) * d MACs)
+        n_alloc = self._n_allocated()
+        k = min(self.n_wta, n_alloc)
+        if n_alloc == 0:
+            # empty store: nothing can win, the sample is allocated
+            sims_sorted = None
+            sum_sims = 0
+            n_th_passing_protos = 0
+            top_sims, top_inds = [], []
+            y_int = int(y.item())
+        else:
+            protos = self.prototypes_[:n_alloc]
+            if self.sim_metric == 'euclidean':
+                sims = -torch.cdist(protos, x, p=2)
+            else:
+                sims = torch.mm(protos, x.T)  # (n_alloc, 1)
             below_threshold = torch.gt(self.sim_th_[:n_alloc], sims)
-            sims[below_threshold] = 0
-            # All sliced slots are allocated; count those passing the threshold
-            n_th_passing_protos = n_alloc - torch.sum(below_threshold)
-            if torch.sum(sims) > 0:
-                # only the top n_wta prototypes are ever inspected downstream
-                sims_sorted, inds_sorted = torch.topk(sims, min(self.n_wta, n_alloc), dim=0)
-                bmu_ind = inds_sorted[0]
-                bmu_sim = sims_sorted[0]
+            sims = sims.masked_fill(below_threshold, 0)
+            sims_sorted, inds_sorted = torch.topk(sims, k, dim=0)
+            sims_sorted = sims_sorted.view(-1)
+
+            # Host-side scalars for the control flow. On CUDA everything is
+            # gathered on the device into one small vector and moved in a
+            # single transfer (the only host-device sync of the step);
+            # indices and labels are exact in float32. On CPU the values are
+            # read directly.
+            if sims.device.type == 'cpu':
+                sum_sims = sims.sum().item()
+                n_th_passing_protos = n_alloc - int(below_threshold.sum().item())
+                top_sims = sims_sorted.tolist()
+                top_inds = inds_sorted.view(-1).tolist()
+                y_int = int(y.item())
             else:
-                bmu_ind = -1
-                bmu_sim = 0
-                sims_sorted = 0
+                dt = sims.dtype
+                packed = torch.cat([
+                    sims.sum().view(1),
+                    below_threshold.sum().view(1).to(dt),
+                    sims_sorted,
+                    inds_sorted.view(-1).to(dt),
+                    y.view(-1).to(dt),
+                ]).tolist()
+                sum_sims = packed[0]
+                n_th_passing_protos = n_alloc - int(packed[1])
+                top_sims = packed[2:2 + k]
+                top_inds = [int(v) for v in packed[2 + k:2 + 2 * k]]
+                y_int = int(packed[2 + 2 * k])
+        labels_host = self._labels_host
 
-            if (y.item() not in self.classes_) and self.supervised:
-                self.classes_.append(y.item())
-                if self.verbose >= 1:
-                    print("Novel Label!")
-                self._allocate(x, y)
-                break
+        if sum_sims > 0:
+            bmu_ind = top_inds[0]
+        else:
+            bmu_ind = -1
 
-            # Novel instance --> Allocate
-            # if no winner, because all similarities are below the given threshold, then allocate
-            if bmu_ind == -1:
-                if self.verbose >= 1:
-                    print("Novel Instance!")
-                    print("Label", y)
-                self._allocate(x, y)
-                break
+        if (y_int not in self.classes_) and self.supervised:
+            self.classes_.append(y_int)
+            if self.verbose >= 1:
+                print("Novel Label!")
+            self._allocate(x0, y_int)
 
-            # Get the winner prototype
-            bmu = self.prototypes_[[bmu_ind]]
+        # Novel instance --> Allocate
+        # if no winner, because all similarities are below the given threshold, then allocate
+        elif bmu_ind == -1:
+            if self.verbose >= 1:
+                print("Novel Instance!")
+                print("Label", y_int)
+            self._allocate(x0, y_int)
 
-            # Calculate Error
-            error = self._calc_err(x, bmu)
-            
-
-            # TODO: Implement for the cases where pseudo-labeling is enabled
-            # If winner not assigned to a label, then assign it to
-            # the training instance's label
-            # if self.proto_labels_[[bmu_ind]] == -1:
-            #     if self.verbose >= 1:
-            #         print("Unsupervised allocating...")
-            #     self.proto_labels_[[bmu_ind]] = y
-            #     # self.prototypes_[[bmu_ind]] += self.alphas_[[bmu_ind]] * error
-            #     # self.prototypes_[[bmu_ind]] = self.prototypes_[[bmu_ind]]/torch.norm(self.prototypes_[[bmu_ind]], p=2)
-            #
-            #     # update the threshold towards max_sim-eps
-            #     # self.sim_th_[[bmu_ind]] = self.sim_th_[[bmu_ind]] + \
-            #     # (self.k_sim_th_pos*max_sim - self.sim_th_[[bmu_ind]]) / self.tau_sim_th_pos
-            #
-            #     self.hits_[[bmu_ind]] += 1
-            #     # self.alphas_[[bmu_ind]] = self.alpha_init/self.hits_[[bmu_ind]]
-            #     break
-
-            # Update the winner based on its inference
+        # Update the winner based on its inference
+        elif self.supervised:
             # If CORRECT prediction
-            if self.supervised:
-                if self.proto_labels_[[bmu_ind]] == y:
-                    if self.adaptive_protos:
-                        self._positive_update(bmu_ind, bmu_sim, error)
-                    break
-
-                # if INCORRECT prediction
-                else:
-                    self.n_error += 1
-                    if self.adaptive_protos:
-                        n_protos_to_update = min(self.n_wta, n_th_passing_protos)
-                        positive_match = False
-                        for m in range(0,n_protos_to_update):
-                            next_bmu_ind = inds_sorted[m]
-                            next_sim = sims_sorted[m]
-                            error = self._calc_err(x, self.prototypes_[[next_bmu_ind]])
-                            if self.proto_labels_[[next_bmu_ind]] == y:
-                                # Found a correct prototype - update it positively
-                                self._positive_update(next_bmu_ind, next_sim, error)
-                                positive_match = True
-                                break  # Exit loop after finding first correct match
-                            else:
-                                # Found an incorrect prototype - update it negatively
-                                self._negative_update(next_bmu_ind, next_sim, error)
-                        # Allocate a new prototype if none of k-winners is a positive match
-                        if not positive_match:
-                            self.n_outlier += 1
-                            if self.learn_outliers:
-                                self._allocate(x, y)
-                    else:
-                        if self.learning_period is not None:
-                            if self.n_error % self.learning_period == 0:
-                                if self.verbose >= 1:
-                                    print("Mistake, allocating...")
-                                self._allocate(x, y)
-                        else:
-                            self._allocate(x, y)
-
-                    break
-
-            else:
+            if labels_host[bmu_ind] == y_int:
                 if self.adaptive_protos:
-                    self._positive_update(bmu_ind, bmu_sim, error)
-                break
+                    error = self._calc_err(x0, bmu_ind)
+                    self._positive_update(bmu_ind, self._sim_arg(sims_sorted, top_sims, 0), error)
 
-                # if self.verbose >= 1:
-                #     print("Predicted:", self.proto_labels_[[bmu_ind]].item(), " Actual: ", y)
-                #     print("sim_th & alpha:", self.sim_th_[[bmu_ind]].item(), self.alphas_[[bmu_ind]].item())
+            # if INCORRECT prediction
+            else:
+                self.n_error += 1
+                if self.adaptive_protos:
+                    n_protos_to_update = min(self.n_wta, n_th_passing_protos)
+                    positive_match = False
+                    for m in range(0, n_protos_to_update):
+                        next_bmu_ind = top_inds[m]
+                        next_sim = self._sim_arg(sims_sorted, top_sims, m)
+                        error = self._calc_err(x0, next_bmu_ind)
+                        if labels_host[next_bmu_ind] == y_int:
+                            # Found a correct prototype - update it positively
+                            self._positive_update(next_bmu_ind, next_sim, error)
+                            positive_match = True
+                            break  # Exit loop after finding first correct match
+                        else:
+                            # Found an incorrect prototype - update it negatively
+                            self._negative_update(next_bmu_ind, next_sim, error)
+                    # Allocate a new prototype if none of k-winners is a positive match
+                    if not positive_match:
+                        self.n_outlier += 1
+                        if self.learn_outliers:
+                            self._allocate(x0, y_int)
+                else:
+                    if self.learning_period is not None:
+                        if self.n_error % self.learning_period == 0:
+                            if self.verbose >= 1:
+                                print("Mistake, allocating...")
+                            self._allocate(x0, y_int)
+                    else:
+                        self._allocate(x0, y_int)
 
-                # TODO: implement forgetting
-                # # If more misses than hits, then forget this prototype, reset it
-                # if self.alphas_[[bmu_ind]] > 1:
-                #     self._forget(bmu_ind)
-            
+        else:
+            if self.adaptive_protos:
+                error = self._calc_err(x0, bmu_ind)
+                self._positive_update(bmu_ind, self._sim_arg(sims_sorted, top_sims, 0), error)
+
         self.num_updates += 1
 
-    
+    def _sim_arg(self, sims_sorted, top_sims, m):
+        """Winner similarity as passed to the update helpers. Only the
+        adaptive-threshold rule reads it numerically; it then gets the
+        float32 tensor element (device arithmetic, as before) rather than
+        the Python float."""
+        return sims_sorted[m] if self.adaptive_th else top_sims[m]
+
+    def _bind_host_state(self):
+        """Host-side mirrors of per-slot state.
+
+        goodness_ and alphas_ are float32 CPU tensors; the numpy views share
+        their storage, so scalar bookkeeping runs in numpy float32 (same IEEE
+        results as the former one-element tensor ops) without tensor
+        dispatch. Labels are also kept as a Python list: they are written
+        only in _allocate, so the host always knows them and the fit step
+        never has to read them back from the device.
+        """
+        self._goodness_np = self.goodness_.numpy()
+        self._alphas_np = self.alphas_.numpy()
+        self._labels_host = self.proto_labels_.view(-1).tolist()
+        n = self.next_alloc_id_
+        # True once the last slot has been allocated (next_alloc_id_ is then
+        # clamped at n_protos - 1 and that slot counts as allocated)
+        self._buffer_full = bool(n < self.n_protos and self._labels_host[n] >= 0)
+
+    def _set_alpha(self, bmu_ind):
+        # alpha = alpha_init / max(goodness, 1). The former tensor expression
+        # `alpha_init / g` evaluated as reciprocal(g) * alpha_init in float32
+        # (Tensor.__rdiv__); the same two operations in the same order keep
+        # the result bitwise for any alpha_init.
+        # Explicit float32 operands: numpy 1.x promotes float32-with-Python-
+        # scalar to float64, torch kept everything in float32.
+        g = self._goodness_np[bmu_ind, 0]
+        self._alphas_np[bmu_ind, 0] = (np.float32(1) / max(g, np.float32(1))) * np.float32(self.alpha_init)
+
+    # Row updates take a Python int slot index and operate in place on a
+    # (d,) view of the prototype matrix: no gather/scatter, no index tensor,
+    # no host sync. Arithmetic order matches the former gather-based code
+    # (alpha * error first, then the add, then an explicit L2 renorm), so
+    # results are bitwise identical.
     def _positive_update(self, bmu_ind, sim, error):
-        self.prototypes_[[bmu_ind]] += self.alphas_[[bmu_ind]] * error
-        self.prototypes_[[bmu_ind]] = self.prototypes_[[bmu_ind]] / torch.norm(self.prototypes_[[bmu_ind]], p=2)
+        w = self.prototypes_[bmu_ind]
+        w.add_(error * float(self._alphas_np[bmu_ind, 0]))
+        w.div_(torch.linalg.vector_norm(w, 2))
 
         # update the threshold towards max_sim-eps
         if self.adaptive_th:
-            self.sim_th_[[bmu_ind]] = self.sim_th_[[bmu_ind]] + \
-            (self.k_sim_th_pos*sim - self.sim_th_[[bmu_ind]]) / self.tau_sim_th_pos
+            self.sim_th_[bmu_ind] = self.sim_th_[bmu_ind] + \
+            (self.k_sim_th_pos*sim - self.sim_th_[bmu_ind]) / self.tau_sim_th_pos
 
         if self.supervised:
-            self.goodness_[[bmu_ind]] += self.k_hit
+            self._goodness_np[bmu_ind, 0] += np.float32(self.k_hit)
         else:
-            self.goodness_[[bmu_ind]] += 0.5*self.k_hit
+            self._goodness_np[bmu_ind, 0] += np.float32(0.5*self.k_hit)
 
-        self.alphas_[[bmu_ind]] = self.alpha_init / max(self.goodness_[[bmu_ind]],1)
+        self._set_alpha(bmu_ind)
 
     def _negative_update(self, bmu_ind, sim, error):
         # update the mistaken prototype
-        self.prototypes_[[bmu_ind]] -= self.alphas_[[bmu_ind]] * error
-        self.prototypes_[[bmu_ind]] = self.prototypes_[[bmu_ind]] / torch.norm(self.prototypes_[[bmu_ind]], p=2)
+        w = self.prototypes_[bmu_ind]
+        w.sub_(error * float(self._alphas_np[bmu_ind, 0]))
+        w.div_(torch.linalg.vector_norm(w, 2))
 
         # update the threshold of this prototype
         if self.adaptive_th:
-            self.sim_th_[[bmu_ind]] = self.sim_th_[[bmu_ind]] + \
-            (self.k_sim_th_neg*sim - self.sim_th_[[bmu_ind]]) / self.tau_sim_th_neg
+            self.sim_th_[bmu_ind] = self.sim_th_[bmu_ind] + \
+            (self.k_sim_th_neg*sim - self.sim_th_[bmu_ind]) / self.tau_sim_th_neg
 
-        self.goodness_[[bmu_ind]] -= self.k_miss
-        self.alphas_[[bmu_ind]] = self.alpha_init / max(self.goodness_[[bmu_ind]],1)
-    
+        self._goodness_np[bmu_ind, 0] -= np.float32(self.k_miss)
+        self._set_alpha(bmu_ind)
+
     # def predict(self, X, return_probas=False, thresholded=False, return_sims=False, return_voting_winner=False):
     #     """
     #     Make predictions on test data X using the learned prototypes.
@@ -388,11 +421,12 @@ class ContinuallyLearningPrototypes(nn.Module):
         # Similarities against allocated prototypes only (unallocated slots
         # are zero vectors and can never contribute a class score)
         n_alloc = self._n_allocated()
-        sims = self._calc_similarities(X, n_alloc).detach()
+        sims = self._calc_similarities(X, n_alloc)
 
         if thresholded:
-            th_passing_check = torch.gt(self.sim_th_[:n_alloc].tile((1, sims.shape[1])), sims)
-            sims[th_passing_check] = 0
+            # broadcast compare instead of tile + boolean index_put (which
+            # forces a host sync); values are identical
+            sims = sims.masked_fill(torch.gt(self.sim_th_[:n_alloc], sims), 0)
 
         n_samples = X.shape[0]
         proto_labels_alloc = self.proto_labels_[:n_alloc]
@@ -432,41 +466,50 @@ class ContinuallyLearningPrototypes(nn.Module):
             scores[torch.arange(n_samples), torch.tensor(final_labels)] = 1
             return scores
 
-        # Max similarity per learned class; masks are built per learned class
-        # over the allocated slice (was: an O(P^2) mask build over all slots)
-        scores = torch.zeros(size=(n_samples, self.num_classes))
-        learned_classes = torch.unique(proto_labels_alloc[proto_labels_alloc > -1])
-        labels_flat = proto_labels_alloc.squeeze(1)
-        for c in learned_classes:
-            class_scores = sims[labels_flat == c, :]
-            scores[:, c] = class_scores.max(dim=0)[0]
+        # Max similarity per learned class in one scatter-max over the
+        # allocated slice (was: one boolean-mask gather per learned class,
+        # each a host sync). Every allocated slot carries a label >= 0, so
+        # the label vector is a valid scatter index; classes without a
+        # prototype keep the zero initial value, as before. max is exact.
+        scores = torch.zeros(size=(n_samples, self.num_classes), device=sims.device)
+        if n_alloc > 0:
+            scores.scatter_reduce_(
+                1,
+                proto_labels_alloc.view(1, -1).expand(n_samples, n_alloc),
+                sims.T.to(scores.dtype),
+                reduce='amax',
+                include_self=False,
+            )
+        scores = scores.cpu()
 
         # return predictions or probabilities
         if not return_probas:
-            return scores.cpu()
+            return scores
         else:
-            return torch.softmax(scores, dim=1).cpu()
-        
-    def _calc_err(self, x, bmu):
+            return torch.softmax(scores, dim=1)
+
+    def _calc_err(self, x, bmu_ind):
+        """Update direction for input row x (a (d,) view) and slot bmu_ind."""
         error = 0
         if self.sim_metric == 'euclidean':
-            error = x - bmu
+            error = x - self.prototypes_[bmu_ind]
 
         elif self.sim_metric == 'dot_product':
             error = x
         else:
             raise NotImplementedError("Can't compute error for cosine similarity: only implemented for Euclidean and dot product similarity")
-            
+
         return error
-    
+
     def _n_allocated(self):
         """Number of allocated prototype slots.
 
         next_alloc_id_ is clamped at n_protos - 1, so once the buffer is full
         the slot AT next_alloc_id_ is itself allocated and must be counted.
+        Tracked on the host (no device probe).
         """
         n = self.next_alloc_id_
-        if n < self.n_protos and self.proto_labels_[n] >= 0:
+        if self._buffer_full:
             n += 1
         return n
 
@@ -493,16 +536,21 @@ class ContinuallyLearningPrototypes(nn.Module):
         return similarities
 
     def _allocate(self, x, y):
+        """Claim the next slot for input row x (a (d,) view) with label y (int)."""
         # print("Mistake again, allocating...")
         bmu_ind = self.next_alloc_id_
-        self.proto_labels_[[bmu_ind]] = y
+        self.proto_labels_[bmu_ind] = y
+        self._labels_host[bmu_ind] = y
 
-        error = x - self.prototypes_[[bmu_ind]]
-        self.prototypes_[[bmu_ind]] += self.alphas_[[bmu_ind]] * error
-        self.prototypes_[[bmu_ind]] = self.prototypes_[[bmu_ind]] / torch.norm(self.prototypes_[[bmu_ind]], p=2)
+        w = self.prototypes_[bmu_ind]
+        error = x - w
+        w.add_(error * float(self._alphas_np[bmu_ind, 0]))
+        w.div_(torch.linalg.vector_norm(w, 2))
 
-        self.goodness_[[bmu_ind]] += 1
+        self._goodness_np[bmu_ind, 0] += np.float32(1)
         # self.alphas_[[bmu_ind]] = self.alpha_init / self.hits_[[bmu_ind]]
+        if bmu_ind == self.n_protos - 1:
+            self._buffer_full = True
         self.next_alloc_id_ = min(self.next_alloc_id_ + 1, self.n_protos - 1)
         # print("Total number of allocated prototypes:", self.next_alloc_id_)
 
@@ -579,11 +627,12 @@ class ContinuallyLearningPrototypes(nn.Module):
         d = torch.load(os.path.join(save_file))
         self.prototypes_ = d['prototypes_'].to(self.device)
         self.proto_labels_ = d['proto_labels_'].to(self.device)
-        self.alphas_ = d['alphas_'].to(self.device)
+        self.alphas_ = d['alphas_'].cpu()
         self.sim_th_ = d['sim_th_'].to(self.device)
-        self.goodness_ = d['goodness_'].to(self.device)
+        self.goodness_ = d['goodness_'].cpu()
         self.classes_ = d['classes_']
         self.next_alloc_id_ = d['next_alloc_id_']
+        self._bind_host_state()
 
     # Locate the best matching unit
     def _get_best_matching_unit(self, x):

@@ -27,6 +27,20 @@ Note: the harness starts `tegrastats` **without sudo** (the monitor's
 `docker=True` path). If VDD_IN comes back empty in the sanity run, run the
 python commands with sudo instead.
 
+## CLP re-run (2026-09-11 pass, see `nmi-benchmark-upgrades.md` 3.4b)
+
+Only the two CLP lines of `run_openloris_benchmarks.sh` (`clp cuda fp32`,
+`clp cpu fp32`) need re-measuring. Before timing anything, confirm the
+rewrite is bitwise on the Orin's CUDA stack (the single-sync packing path
+only differs from the old code on CUDA; it was verified on CPU only):
+
+```bash
+pytest tests/test_benchmark_parity.py -k "clp_bitwise" -q   # cuda cases run automatically
+```
+
+Then Steps 1-3 as usual for the CLP runs, and regenerate the ledger with
+`benchmarks/make_ledger.py` and `benchmarks/make_table1_tex.py`.
+
 ## Step 1: prepare the system
 
 ```bash
