@@ -32,6 +32,7 @@ Outputs saved to experiments/results/slda_regularization_equivalence/:
 Usage (from repo root or experiments/):
   python experiments/slda_regularization_equivalence.py
   python experiments/slda_regularization_equivalence.py --extra_lambdas 0.01 0.03 30 100
+  python experiments/slda_regularization_equivalence.py --replot   # panel only, from saved results
 """
 
 import argparse
@@ -193,6 +194,67 @@ def run_25shot(clf, X_tr, y_tr, checkpoints, X_test, y_test):
     return np.array(accs)
 
 
+
+# ── Supplementary panel ───────────────────────────────────────────────────────
+
+def draw_panel(lams, accs_, best_lambda, curves, protocols, models, images_dir):
+    """Panel (a): lambda sweep on the held-out order; (b), (c): accuracy
+    trajectories of both parameterizations under the paper protocols."""
+    n_panels = 1 + len(protocols)
+    fig, axes = plt.subplots(1, n_panels, figsize=(2.4 * n_panels, 2.2))
+    axes = np.atleast_1d(axes)
+
+    ax = axes[0]
+    ax.semilogx(lams, accs_, "o-", color="tab:blue", markersize=3)
+    ax.axvline(best_lambda, color="tab:red", linestyle=":", linewidth=0.75)
+    # Fixed 10-pp window: the sweep spans ~0.2 pp, and an auto-scaled axis
+    # would inflate that into an apparent trend.
+    centre = round(float(np.mean(accs_)), 2)
+    ax.set_ylim(centre - 0.05, centre + 0.05)
+    spread_pp = (max(accs_) - min(accs_)) * 100
+    ax.text(0.03, 0.95, f"spread {spread_pp:.1f} pp", transform=ax.transAxes,
+            ha="left", va="top")
+    ax.set_xlabel(r"ridge $\lambda$")
+    ax.set_ylabel("Final accuracy (held-out order)")
+    ax.set_title("(a) $\\lambda$ selection")
+
+    for k, protocol in enumerate(protocols):
+        ax = axes[1 + k]
+        n_ck = curves[(protocol, models[0])].shape[0]
+        t = np.arange(1, n_ck + 1)
+        for m, color, ls in zip(models, ["tab:orange", "tab:blue"],
+                                ["-", "--"]):
+            mean = curves[(protocol, m)].mean(axis=1)
+            std = curves[(protocol, m)].std(axis=1)
+            ax.plot(t, mean, ls, color=color, label=f"{m}: "
+                    f"{mean[-1]*100:.1f}$\\pm${std[-1]*100:.1f}%")
+            ax.fill_between(t, mean - std, mean + std, color=color, alpha=0.15)
+        ax.set_xlabel("Classes seen" if protocol == "1shot"
+                      else "Instance round")
+        ax.set_ylabel("Accuracy")
+        ax.set_title(f"({chr(98 + k)}) {protocol} protocol")
+        ax.legend(frameon=False, loc="lower right")
+
+    plt.tight_layout()
+    for ext in (("pdf", "png") if SAVE_PDF else ("png",)):
+        for out_dir in (RESULTS_DIR, images_dir):
+            plt.savefig(out_dir / f"ea_equivalence_panel.{ext}",
+                        format=ext, bbox_inches="tight")
+    plt.close()
+    print(f"Panel saved to {images_dir}/ea_equivalence_panel.png")
+
+
+def replot(images_dir):
+    """Redraw the panel from equivalence.npz without rerunning the streams."""
+    d = np.load(RESULTS_DIR / "equivalence.npz")
+    models = ["Hayes-SLDA", "RankOne-SLDA"]
+    protocols = [p for p in ("1shot", "25shot") if f"{p}_hayes" in d.files]
+    curves = {(p, m): d[f"{p}_{m.split('-')[0].lower()}"]
+              for p in protocols for m in models}
+    draw_panel(list(d["lambda_grid"]), list(d["sweep_acc"]),
+               float(d["best_lambda"]), curves, protocols, models, images_dir)
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -202,12 +264,18 @@ def main():
                         help="Additional lambda values to widen the sweep")
     parser.add_argument("--skip_25shot", action="store_true",
                         help="Debug: run the 1-shot protocol only")
+    parser.add_argument("--replot", action="store_true",
+                        help="Redraw the panel from saved equivalence.npz")
     args = parser.parse_args()
 
     plt.rcParams.update(PLOT_CONFIG)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     images_dir = _REPO / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.replot:
+        replot(images_dir)
+        return
 
     np.random.seed(GLOBAL_SEED)
     random.seed(GLOBAL_SEED)
@@ -321,45 +389,10 @@ def main():
         w.writerows(rows)
 
     # ── Supplementary panel ──────────────────────────────────────────────────
-    n_panels = 1 + len(protocols)
-    fig, axes = plt.subplots(1, n_panels, figsize=(2.4 * n_panels, 2.2))
-    axes = np.atleast_1d(axes)
-
-    ax = axes[0]
-    lams = [r["lambda"] for r in sweep]
-    accs_ = [r["final_acc"] for r in sweep]
-    ax.semilogx(lams, accs_, "o-", color="tab:blue", markersize=3)
-    ax.axvline(best_lambda, color="tab:red", linestyle=":", linewidth=0.75)
-    ax.set_xlabel(r"ridge $\lambda$")
-    ax.set_ylabel("Final accuracy (held-out order)")
-    ax.set_title("(a) $\\lambda$ selection")
-
-    for k, protocol in enumerate(protocols):
-        ax = axes[1 + k]
-        n_ck = curves[(protocol, models[0])].shape[0]
-        t = np.arange(1, n_ck + 1)
-        for m, color, ls in zip(models, ["tab:orange", "tab:blue"],
-                                ["-", "--"]):
-            mean = curves[(protocol, m)].mean(axis=1)
-            std = curves[(protocol, m)].std(axis=1)
-            ax.plot(t, mean, ls, color=color, label=f"{m}: "
-                    f"{mean[-1]*100:.1f}$\\pm${std[-1]*100:.1f}%")
-            ax.fill_between(t, mean - std, mean + std, color=color, alpha=0.15)
-        ax.set_xlabel("Classes seen" if protocol == "1shot"
-                      else "Instance round")
-        ax.set_ylabel("Accuracy")
-        ax.set_title(f"({chr(98 + k)}) {protocol} protocol")
-        ax.legend(frameon=False, loc="lower right")
-
-    plt.tight_layout()
-    for ext in (("pdf", "png") if SAVE_PDF else ("png",)):
-        for out_dir in (RESULTS_DIR, images_dir):
-            plt.savefig(out_dir / f"ea_equivalence_panel.{ext}",
-                        format=ext, bbox_inches="tight")
-    plt.close()
+    draw_panel([r["lambda"] for r in sweep], [r["final_acc"] for r in sweep],
+               best_lambda, curves, protocols, models, images_dir)
 
     print(f"\nResults saved to {RESULTS_DIR}/")
-    print(f"Panel saved to {images_dir}/ea_equivalence_panel.png")
 
 
 if __name__ == "__main__":
