@@ -9,12 +9,21 @@ provenance. Re-run this after any re-benchmark; never edit the outputs by hand.
 Usage:
   python benchmarks/make_ledger.py --table1 benchmarks/reports_table1.csv \
       --out "<folder>/numbers.md"
+
+Section M (prototype allocation, state memory, CLP step cost per working
+point) reads analysis/clp_allocation.csv, written by analysis/clp_allocation.py,
+and the state-size formulas of analysis/op_counts.py.
 """
 import argparse
 import datetime as dt
 import os
+import sys
 
 import pandas as pd
+
+_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(_REPO, "analysis"))   # op_counts imports loihi_op_counts as a sibling
+import op_counts  # noqa: E402  (pure python; torch only inside --measure)
 
 # ---------------------------------------------------------------------------
 # Constants with provenance (everything not produced by the Orin harness)
@@ -22,6 +31,15 @@ import pandas as pd
 
 # Loihi 2 per-sample OCL step, unchanged from the round-2 manuscript Table 1.
 LOIHI = {"lat_ms": 0.33, "tot_mJ": 0.05, "dyn_mJ": 0.01}
+
+# Prototype slots instantiated on Loihi 2 per run (lava-loihi repo,
+# tutorials/in_depth/clp): the cost benchmark and the two accuracy runs use
+# different network sizes.
+LOIHI_SLOTS = {
+    "benchmark": (300, "benchmark_clp.py:50"),
+    "1-shot": (230, "openloris/clp_learning_test_openloris.py:121"),
+    "25-shot": (1400, "openloris/clp_25_shot_openloris.py:215"),
+}
 
 # Final accuracy, mean +/- std over 3 class orders (round-2 Table 1; SLDA from
 # the rank-one runs, E-A, nmi-manuscript-integration.md section 2).
@@ -82,6 +100,8 @@ def main():
     ap.add_argument("--table1", required=True)
     ap.add_argument("--out", required=True,
                     help="markdown output path; a .csv sibling is written too")
+    ap.add_argument("--alloc", default=os.path.join(_REPO, "analysis", "clp_allocation.csv"),
+                    help="CLP allocation measurements (analysis/clp_allocation.py)")
     args = ap.parse_args()
 
     full = pd.read_csv(args.table1)
@@ -156,7 +176,7 @@ def main():
             put(f"{rid}.dyn", round(rd, 1), "T1")
             i += 1
     L.append("")
-    L.append("Reading guide: NCM CPU is the iso-latency-class anchor (strict Pareto win on accuracy and energy); "
+    L.append("Reading guide: NCM CPU is the lightest conventional learner (no latency ordering is claimed among the cheap learners: at batch 1 they sit on the dispatch floor); "
              "Replay GPU the near-iso-accuracy anchor; SLDA rank-one the high-accuracy point; CLP CPU/GPU the "
              "iso-algorithm co-design row. No algorithmic x hardware decomposition is derived from this table.")
     L.append("")
@@ -234,18 +254,154 @@ def main():
                 put(f"{rid}.{key}", round(float(row[col]), 3), src)
         i += 1
     L.append("")
-    L.append("CLP standalone query is not part of the streaming loop; the measured value (exp_2, exp_4) is a "
-             "host-sync artifact of the pre-fix predict and is not reported. p99 values are per primitive; "
-             "never sum them.")
+    L.append("CLP standalone query is not part of the streaming loop and is not reported (measured for "
+             "completeness: 0.49 ms GPU, 0.32 ms CPU in the 2026-09-12 re-run). CLP rows (clp2/*) are the "
+             "single-sync implementation (commit e4dd384, bitwise-identical model state to the Phase 3 code); "
+             "their latency and dynamic power are as measured, their static power is the Phase 3 CLP idle "
+             "baseline of the same device (the re-run session idled at 4.34 W instead of 5.75 W), so total "
+             "energy = latency x (Phase 3 static + measured dynamic). p99 values are per primitive; never sum them.")
+    L.append("")
+
+    # ---- Prototype allocation, state memory, CLP working points ---------
+    alloc = pd.read_csv(args.alloc)
+    d, kc = op_counts.D, op_counts.K
+    a1 = alloc[(alloc.protocol == "1-shot") & (alloc.config == "experiment")]
+    a25 = alloc[(alloc.protocol == "25-shot") & (alloc.config == "experiment")]
+    b1 = alloc[(alloc.protocol == "1-shot") & (alloc.config == "benchmark")]
+    same_traj = (a1.final_alloc.values == b1.final_alloc.values).all() and \
+                (a1.stream_mean.values == b1.stream_mean.values).all()
+    seed10_mean = float(b1[b1.seed == 10].stream_mean.iloc[0])
+    src_a = os.path.relpath(args.alloc)
+
+    L.append("## M. Prototype allocation and state memory (per protocol)")
+    L.append("")
+    L.append(f"Source: `{src_a}` (`analysis/clp_allocation.py`: replay of the exact accuracy runs, "
+             "3 class orders; the reproduced accuracies match T1.1/T1.2). CLP allocates on demand and "
+             "slices every similarity GEMM to the allocated rows, so its per-sample cost (Md + d MAC) and "
+             "its live state (Md floats) follow the allocation M, never the slot capacity. "
+             + ("The benchmark configuration (300 slots, k_miss = 0.5) and the accuracy configuration "
+                "(400 slots, k_miss = 1) give identical trajectories on the 1-shot stream, so the Orin "
+                "cost rows and the accuracy column come from the same allocation. " if same_traj else
+                "WARNING: benchmark and accuracy configurations diverge on the 1-shot stream. ")
+             + f"Table 1 costs are seed-10 measurements, whose stream-mean allocation is {seed10_mean:g} "
+             "(the working point of `analysis/op_counts.py`). CLP-SNN on Loihi 2 sweeps every instantiated "
+             f"slot; its cost rows use the {LOIHI_SLOTS['benchmark'][0]}-slot benchmark network "
+             f"(`{LOIHI_SLOTS['benchmark'][1]}`) while its accuracy runs instantiate "
+             f"{LOIHI_SLOTS['1-shot'][0]} (1-shot) and {LOIHI_SLOTS['25-shot'][0]:,} (25-shot) slots. "
+             "So for both methods the cost rows are 300-slot, 1-shot-stream numbers and the 25-shot "
+             "accuracies come from larger prototype pools.")
+    L.append("")
+    L.append("| id | Protocol | CLP slots (accuracy runs) | Samples | CLP final allocated (mean+/-std; max) | "
+             "Per class | Stream-mean M | Reproduced CLP acc | CLP-SNN Loihi slots (accuracy run) | source |")
+    L.append("|---|---|---|---|---|---|---|---|---|---|")
+    stats = {}
+    for rid, prot, sub in (("M.1", "1-shot", a1), ("M.2", "25-shot", a25)):
+        fin, sm, acc = sub.final_alloc, sub.stream_mean, sub.final_acc
+        stats[prot] = dict(final=float(fin.mean()), final_std=float(fin.std(ddof=0)),
+                           final_max=int(fin.max()), smean=float(sm.mean()))
+        lslots, lsrc = LOIHI_SLOTS[prot]
+        L.append(f"| {rid} | {prot} | {int(sub.slots.iloc[0]):,} | {int(sub.n_samples.mean()):,} | "
+                 f"{fin.mean():.1f}+/-{fin.std(ddof=0):.1f}; {int(fin.max())} | {fin.mean() / kc:.1f} | "
+                 f"{sm.mean():.1f} | {acc.mean():.1f}+/-{acc.std(ddof=0):.1f} | {lslots:,} | "
+                 f"seeds {', '.join(map(str, sub.seed))}; Loihi `{lsrc}` |")
+        put(f"{rid}.loihi_slots", lslots, lsrc)
+        put(f"{rid}.final_alloc_mean", round(float(fin.mean()), 1), src_a)
+        put(f"{rid}.final_alloc_std", round(float(fin.std(ddof=0)), 1), src_a)
+        put(f"{rid}.final_alloc_max", int(fin.max()), src_a)
+        put(f"{rid}.final_alloc_per_class", round(float(fin.mean()) / kc, 1), src_a)
+        put(f"{rid}.stream_mean_alloc", round(float(sm.mean()), 1), src_a)
+        put(f"{rid}.slots", int(sub.slots.iloc[0]), src_a)
+    put("M.1.stream_mean_alloc_seed10", seed10_mean, src_a)
+    L.append("")
+    L.append("Trajectory: 1-shot allocation grows roughly linearly over the 40 class steps (about 3 per class); "
+             "25-shot allocation is still climbing at shot 25 (+50 to +110 per shot), not saturating. "
+             "25-shot runs with learn_outliers=False; the ~500-600 outlier samples per seed are not allocated.")
+    L.append("")
+
+    # state memory at end of stream
+    counts_all = op_counts.build(include_loihi=True)
+    fixed = {c.name: c.state_bytes for c in counts_all}
+    FP32 = op_counts.FP32
+
+    def clp_state(m):
+        return (m * d + 4 * m) * FP32
+
+    def mb(x):
+        return f"{x / 1e6:.2f} MB" if x >= 1e6 else f"{x / 1e3:.0f} kB"
+
+    L.append("### M.3 State memory at end of stream (d = 1280, K = 40) [D5 retired 2026-09-11; reference only]")
+    L.append("")
+    L.append("| id | Method | 1-shot | 25-shot | rule |")
+    L.append("|---|---|---|---|---|")
+    s1, s25 = clp_state(stats["1-shot"]["final"]), clp_state(stats["25-shot"]["final"])
+    rows_m3 = [
+        ("M.3.clp_snn_loihi", "CLP-SNN (Loihi 2, INT8)",
+         LOIHI_SLOTS["1-shot"][0] * d * op_counts.INT8, LOIHI_SLOTS["25-shot"][0] * d * op_counts.INT8,
+         f"P d bytes at the accuracy-run network sizes (P = {LOIHI_SLOTS['1-shot'][0]} / "
+         f"{LOIHI_SLOTS['25-shot'][0]:,}); the {LOIHI_SLOTS['benchmark'][0]}-slot benchmark network is "
+         f"{mb(fixed['CLP-SNN (Loihi 2)'])}"),
+        ("M.3.clp", "CLP (host, FP32)", s1, s25,
+         "allocated state M(d + 4) x 4 B at end of stream (M.1, M.2); reserved buffer is slots x d x 4 B"),
+        ("M.3.ncm", "NCM", fixed["NCM"], fixed["NCM"], "(Kd + 2K) x 4 B, fixed"),
+        ("M.3.replay", "Replay", fixed["Replay"], fixed["Replay"], "weights + momentum + 800 x d buffer, fixed"),
+        ("M.3.slda_rank1", "SLDA (rank-one)", fixed["SLDA (rank-one)"], fixed["SLDA (rank-one)"],
+         "(d^2 + 2dK + 2K) x 4 B, fixed"),
+        ("M.3.slda_naive", "SLDA (naive)", fixed["SLDA (naive)"], fixed["SLDA (naive)"],
+         "(2d^2 + Kd + K) x 4 B, fixed (SI anchor only)"),
+    ]
+    for rid, name, v1, v25, rule in rows_m3:
+        L.append(f"| {rid} | {name} | {mb(v1)} | {mb(v25)} | {rule} |")
+        src_m3 = "op_counts.py state formulas" if v1 == v25 else (
+            "lava-loihi tutorial configs" if "loihi" in rid else src_a)
+        put(f"{rid}.1shot_MB", round(v1 / 1e6, 3), src_m3)
+        put(f"{rid}.25shot_MB", round(v25 / 1e6, 3), src_m3)
+    L.append("")
+    L.append(f"CLP reserved buffers at the slot counts actually configured: 300 slots {mb(clp_state(300))} "
+             f"(benchmark, op_counts.py), 400 slots {mb(clp_state(400))} (1-shot accuracy runs), "
+             f"2,600 slots {mb(clp_state(2600))} (25-shot accuracy runs). Report the allocated state; "
+             "the reserved buffer is an implementation choice.")
+    L.append("")
+
+    # CLP step MACs by working point
+    step_of = {c.name: c.step_macs for c in counts_all}
+    slda_step, ncm_step, loihi_step = step_of["SLDA (rank-one)"], step_of["NCM"], step_of["CLP-SNN (Loihi 2)"]
+    L.append("### M.4 CLP per-sample step cost by working point (Md + d MAC)")
+    L.append("")
+    L.append(f"| id | Working point | M | step (MAC) | vs SLDA rank-one ({op_counts._fmt(slda_step)}) | "
+             f"vs NCM ({op_counts._fmt(ncm_step)}) | vs CLP-SNN Loihi 2 ({op_counts._fmt(loihi_step)}) |")
+    L.append("|---|---|---|---|---|---|---|")
+    wps = [
+        ("M.4.1", "1-shot, stream mean, seed 10 (Table 1 cost rows; op_counts.py)", seed10_mean),
+        ("M.4.2", "1-shot, end of stream (3-seed mean)", stats["1-shot"]["final"]),
+        ("M.4.3", "25-shot, stream mean (3-seed mean)", stats["25-shot"]["smean"]),
+        ("M.4.4", "25-shot, end of stream (3-seed mean)", stats["25-shot"]["final"]),
+    ]
+    for rid, label, m in wps:
+        step_m = m * d + d
+        L.append(f"| {rid} | {label} | {m:.1f} | {op_counts._fmt(step_m)} | {slda_step / step_m:.1f}x fewer | "
+                 f"{step_m / ncm_step:.1f}x more | {step_m / loihi_step:.2f}x |")
+        put(f"{rid}.M", round(m, 1), src_a)
+        put(f"{rid}.step_MAC", int(round(step_m)), "Md + d, op_counts.py")
+        put(f"{rid}.vs_slda_rank1", round(slda_step / step_m, 1), "op_counts.py")
+        put(f"{rid}.vs_ncm", round(step_m / ncm_step, 1), "op_counts.py")
+        put(f"{rid}.vs_loihi", round(step_m / loihi_step, 2), "op_counts.py")
+    L.append("")
+    L.append("Reading guide: every Table 1 cost row, and any operation-count comparison in the manuscript, "
+             "is stated at M.4.1. The other rows show how far CLP's operation-count advantage is "
+             "protocol-dependent: on the host it shrinks from about 40x fewer than rank-one SLDA at the 1-shot "
+             "working point to about 1.5x at the end of the 25-shot stream, because M grows along the stream. "
+             "The same holds for CLP-SNN on Loihi 2, whose cost rows are for the 300-slot benchmark network "
+             "while the 25-shot accuracy network has 1,400 slots (P d sweep scales with P). Only the "
+             "fixed-state methods (NCM, Replay, SLDA) are protocol-independent in cost.")
     L.append("")
 
     # ---- Open items -----------------------------------------------------
     L.append("## Open items (not numbers yet)")
     L.append("")
-    L.append("- State-memory column: compute from end-of-stream prototype counts per protocol before use; "
-             "not in this ledger.")
+    L.append("- State-memory column: resolved, section M.3 (CLP allocated state per protocol, others fixed).")
     L.append("- Loihi window contents (supervisor round trip): pending Intel confirmation; affects wording only.")
-    L.append("- Compiled-NCM control and fixed CLP query: add rows here if the re-runs arrive; nothing else changes.")
+    L.append("- Compiled-NCM control: add a row here if the re-run arrives; nothing else changes. "
+             "(CLP re-run done 2026-09-12, rows T1.1/T1.2/E.1/E.2 updated.)")
     L.append("- Naive-SLDA accuracy (54.4 / 95.7) is the Hayes shrinkage variant; the SI anchor row reports cost only.")
 
     with open(args.out, "w", encoding="utf-8") as f:

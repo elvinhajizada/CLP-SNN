@@ -1,0 +1,45 @@
+Warming up fit (20 samples)...
+
+============================================================
+Latency Distribution Statistics [fit]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        1.391 ms  <- reported (amortized cost)
+  Std deviation:       1.285 ms
+  Median latency:      1.335 ms
+  Min / Max:           1.056 / 63.818 ms
+  95th / 99th pct:     1.453 / 2.227 ms
+  p95-filtered mean:   1.339 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports_clp2/exp_1
+Report saved as pickle
+Warming up predict (20 samples)...
+
+============================================================
+Latency Distribution Statistics [predict]:
+============================================================
+Total samples processed: 2400
+Samples used for stats (after skipping first 10): 2390
+  Mean latency:        0.487 ms  <- reported (amortized cost)
+  Std deviation:       0.083 ms
+  Median latency:      0.481 ms
+  Min / Max:           0.232 / 1.640 ms
+  95th / 99th pct:     0.511 / 0.563 ms
+  p95-filtered mean:   0.478 ms  (jitter diagnostic only)
+============================================================
+
+Experiment saved at benchmarks/reports_clp2/exp_2
+Report saved as pickle
+
+============================================================
+Benchmarking completed for CLP (fp32, op=both)
+============================================================
+Model: CLP
+Dataset: X_train_1_shot_10
+C_upd (fit): mean 1391.07 us | median 1335.33 us | p99 2226.55 us over 2390 samples
+C_qry (predict): mean 487.40 us | median 480.59 us | p99 563.39 us over 2390 samples
+Results saved to: benchmarks/reports_clp2/
+============================================================
+

@@ -1,0 +1,5 @@
+Exp,Method,Op,Device,Precision,Batch Size,Latency mean (ms),Latency median (ms),Latency p99 (ms),Total Power (W),Static Power (W),Dynamic Power (W),Total Energy (mJ),Dynamic Energy (mJ),Total EDP (uJs),Dynamic EDP (uJs),GPU Usage (%)
+exp_1,CLP,C_upd,orin-gpu,fp32,1,1.391,1.335,2.227,5.163,4.338,0.825,7.183,1.148,9.991,1.597,6.899
+exp_2,CLP,C_qry,orin-gpu,fp32,1,0.487,0.481,0.563,5.133,4.337,0.796,2.502,0.388,1.219,0.189,6.923
+exp_4,CLP,C_upd,orin-cpu,fp32,1,0.54,0.533,0.828,5.089,4.331,0.758,2.749,0.409,1.485,0.221,0.0
+exp_5,CLP,C_qry,orin-cpu,fp32,1,0.323,0.314,0.374,4.948,4.333,0.615,1.597,0.199,0.515,0.064,0.0

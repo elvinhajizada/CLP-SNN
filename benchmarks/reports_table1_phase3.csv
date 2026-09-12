@@ -1,6 +1,6 @@
 Method,Device,Precision,C_upd Latency (ms),C_qry Latency (ms),C_upd+C_qry Latency (ms),C_upd p99 (ms),C_qry p99 (ms),C_upd Total E (mJ),C_qry Total E (mJ),C_upd+C_qry Total E (mJ),C_upd Dyn E (mJ),C_qry Dyn E (mJ),C_upd+C_qry Dyn E (mJ),Static Power (W),"Exp (upd, qry)"
-CLP,orin-gpu,fp32,1.391,0.487,1.878,2.227,0.563,9.15,3.19,12.34,1.148,0.388,1.536,5.753,"clp2/exp_1, clp2/exp_2 (re-run 2026-09-12; static 5.753 W from Phase 3)"
-CLP,orin-cpu,fp32,0.54,0.323,0.863,0.828,0.374,3.516,2.057,5.573,0.409,0.199,0.608,5.754,"clp2/exp_4, clp2/exp_5 (re-run 2026-09-12; static 5.754 W from Phase 3)"
+CLP,orin-gpu,fp32,2.205,16.253,18.458,2.956,16.945,15.239,111.167,126.406,2.553,17.632,20.185,5.753,"exp_1, exp_2"
+CLP,orin-cpu,fp32,0.972,4.929,5.901,1.668,6.359,6.511,32.49,39.001,0.916,4.132,5.048,5.754,"exp_3, exp_4"
 ncm,orin-gpu,fp32,0.939,0.661,1.599,1.567,1.102,6.478,4.539,11.016,1.058,0.728,1.786,5.773,"exp_5, exp_6"
 ncm,orin-gpu,fp16,0.924,0.708,1.632,1.568,1.274,6.369,4.858,11.227,1.039,0.775,1.813,5.772,"exp_7, exp_8"
 ncm,orin-cpu,fp32,0.452,0.281,0.734,0.502,0.459,3.022,1.818,4.84,0.413,0.197,0.61,5.768,"exp_9, exp_10"
