@@ -79,6 +79,7 @@ the clone to fetch the missing data.
 | `data/25shot/y_train_25_shot_{10,20,30}.npy` | Corresponding labels |
 | `data/X_test.npy` | Test features (60 samples/class, balanced, seed 42) |
 | `data/y_test.npy` | Test labels |
+| `data/loihi2/accuracies_clp_loihi_{1shot,25shot}.npy` | CLP-SNN accuracy curves measured on Loihi 2 (checkpoints × 1 × seeds 10/20/30) |
 
 Features are 1280-dimensional EfficientNet-B0 outputs, L2-normalized before all prototype-based classifiers.
 The raw OpenLORIS dataset can be downloaded from [the OpenLORIS project](https://lifelong-robotic-vision.github.io/dataset/scene.html).
@@ -107,6 +108,56 @@ python experiments/clp_snn_threshold_g_inc_sweep.py
 ```
 
 Results and figures are saved to `experiments/results/` and `images/` respectively.
+
+---
+
+## CLP-SNN simulator configurations
+
+All CLP-SNN configurations are named presets in `models/clp_snn_configs.py`:
+
+```python
+from models.CLP_SNN import CLPSNN
+from models.clp_snn_configs import CONFIGS
+clf = CLPSNN(1280, num_classes=40, device="cpu", **CONFIGS["paper_1shot"])
+```
+
+### Paper configurations (reproduce CLP-SNN on Loihi 2)
+
+The CLP-SNN accuracies reported in the paper are measured on Loihi 2. The
+paper presets make the simulator behave like the chip deployment:
+
+- **allocation-only:** each prototype is imprinted once and then frozen, and a misclassified input is allocated as a new prototype;
+- **INT8 arithmetic;**
+- **the chip's prototype pool;**
+- **the effective similarity thresholds chosen for the on-chip experiments.**
+
+The experiment scripts listed above use these presets. The chip's measured accuracy curves are in `data/loihi2/`.
+
+| Preset | Setting | Final acc. (%) | AAA (%) | Prototypes | Loihi 2 final (%) |
+|---|---|---|---|---|---|
+| `paper_1shot` | allocation-only INT8, θ 0.66, 230 slots | 55.6 ± 2.2 | 67.2 | 160 | 55.4 ± 2.5 |
+| `paper_25shot` | allocation-only INT8, θ 0.47, 1,400 slots | 90.2 ± 0.3 | 80.9 | 1,226 | 90.0 ± 0.4 |
+
+### Other configurations (not used for paper numbers)
+
+**Adaptive presets** run the full learning rule: the winner is also updated on correct and incorrect predictions. This path runs in simulation only; the chip deployment is allocation-only.
+
+**`alloc_*_large` presets** give the allocation-only network a higher threshold and a larger pool.
+
+Mean over seeds 10/20/30, OpenLORIS test set.
+
+| Preset | Setting | Final acc. (%) | AAA (%) | Prototypes |
+|---|---|---|---|---|
+| `adaptive_int8_1shot` | adaptive INT8, θ 0.90, 600 slots | 55.4 ± 1.1 | 67.0 | 461 |
+| `adaptive_fp32_1shot` | adaptive FP32, θ 0.80, 600 slots | 56.6 ± 1.7 | 68.5 | 145 |
+| `alloc_int8_1shot_large` | allocation-only INT8, θ 0.85, 1,000 slots | 57.2 ± 2.2 | 68.7 | 455 |
+| `adaptive_int8_25shot` | adaptive INT8, θ 0.85, 6,000 slots | 91.7 ± 0.4 | 82.9 | 4,614 |
+| `adaptive_fp32_25shot` | adaptive FP32, θ 0.85, 6,000 slots | 93.2 ± 0.3 | 84.7 | 3,983 |
+| `alloc_int8_25shot_large` | allocation-only INT8, θ 0.85, 10,000 slots | 93.2 ± 0.2 | 85.0 | 7,902 |
+
+For comparison, CLP scores 57.0 (1-shot) and 93.0 (25-shot).
+
+Pool sizes are chosen so that no preset fills its pool. Adaptive INT8 loses some accuracy at low thresholds, because small averaging steps fall below the 8-bit rounding floor; FP32 does not. `experiments/clp_snn_hw_comparison.py` sweeps the threshold for all variants.
 Each script has a `SAVE_PDF = True` flag near the top — set it to `False` to skip
 `.pdf` output and save only `.png` (useful on headless servers without a PDF backend).
 
