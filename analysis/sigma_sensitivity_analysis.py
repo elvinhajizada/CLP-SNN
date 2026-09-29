@@ -40,24 +40,6 @@ plt.rcParams.update({
 
 # ── Stochastic-rounding helpers (Loihi BitApproximate mechanism) ──────────────
 
-def _stoch_shift(raw: np.ndarray, shift: int, rng: np.random.Generator) -> np.ndarray:
-    """Per-element stochastic rounding of an integer right-shift."""
-    scale = 1 << shift
-    floor_val = raw >> shift
-    frac = raw - (floor_val << shift)
-    bump = rng.random(size=raw.shape) < frac.astype(np.float64) / scale
-    return floor_val + bump.astype(np.int64)
-
-
-def _stoch_shift_scalar(raw: np.int64, shift: int, rng: np.random.Generator) -> np.int64:
-    """Scalar stochastic rounding (used for the y_int dot-product result)."""
-    scale = 1 << shift
-    floor_val = raw >> shift
-    frac = int(raw - (floor_val << shift))
-    bump = np.int64(1 if rng.random() < frac / scale else 0)
-    return floor_val + bump
-
-
 # ── Variant F: faithful Lava BitApproximate mirror ──────────────────────────
 
 _ACC_MAX = (1 << 15) - 1
@@ -119,7 +101,7 @@ def run_with_center_similarity(
     samples: np.ndarray, alpha_min: int = 0, rng_seed: int = 0,
     g_inc: float = 0.2
 ):
-    """Run Variants A, B, C, D, F and track similarity to cluster center."""
+    """Run Variants A, B, F and track similarity to cluster center."""
     # Cluster center: geometric mean, L2-normalized
     centre = samples.mean(axis=0)
     centre /= np.linalg.norm(centre)
@@ -127,11 +109,8 @@ def run_with_center_similarity(
     # Initialize all variants
     w_A = samples[0].copy()
     w_B = samples[0].copy()
-    w_int_C = quantize_input_int(samples[0])
-    w_int_D = quantize_input_int(samples[0])
     w_int_F = quantize_input_int(samples[0])
     
-    rng = np.random.default_rng(rng_seed)
     rng_F = np.random.default_rng(rng_seed + 7919)
     
     g = 1.0
@@ -139,13 +118,9 @@ def run_with_center_similarity(
     # Output arrays
     sim_to_center_A = []
     sim_to_center_B = []
-    sim_to_center_C = []
-    sim_to_center_D = []
     sim_to_center_F = []
     norm_A = []
     norm_B = []
-    norm_C = []
-    norm_D = []
     norm_F = []
     raw_sim_A = []
     raw_sim_B = []
@@ -164,24 +139,6 @@ def run_with_center_similarity(
         y_B = float(w_B @ x)
         w_B = w_B + alpha * (x - w_B * y_B)
         
-        # ── Variant C: INT8 signed, S=128, deterministic round-half-up ───────
-        x_int = quantize_input_int(x)
-        alpha_int = np.int64(max(alpha_min, round(128 / g)))
-        y_acc = np.dot(w_int_C, x_int)
-        y_int = np.clip((y_acc + np.int64(64)) >> 7, -128, 127)
-        p1 = (alpha_int * x_int + np.int64(64)) >> 7
-        p2 = (alpha_int * y_int * w_int_C + np.int64(8192)) >> 14
-        w_int_C = np.clip(w_int_C + p1 - p2, -128, 127)
-        
-        # ── Variant D: INT8 signed, S=128, per-dim stochastic rounding ───────
-        x_int = quantize_input_int(x)
-        alpha_int = np.int64(max(alpha_min, round(128 / g)))
-        y_acc = np.dot(w_int_D, x_int)
-        y_int = np.clip(_stoch_shift_scalar(y_acc, 7, rng), -128, 127)
-        p1 = _stoch_shift(alpha_int * x_int, 7, rng)
-        p2 = _stoch_shift(alpha_int * y_int * w_int_D, 14, rng)
-        w_int_D = np.clip(w_int_D + p1 - p2, -128, 127)
-        
         # ── Variant F: faithful Lava BitApprox mirror ────────────────────────
         x_int = quantize_input_int(x)
         alpha_int = np.int64(max(alpha_min, round(128 / g)))
@@ -190,32 +147,22 @@ def run_with_center_similarity(
         # ── Compute similarities to cluster center ────────────────────────────
         w_A_unit = w_A / (np.linalg.norm(w_A) + 1e-12)
         w_B_unit = w_B / (np.linalg.norm(w_B) + 1e-12)
-        w_C_unit = w_int_C.astype(np.float64) / (np.linalg.norm(w_int_C.astype(np.float64)) + 1e-12)
-        w_D_unit = w_int_D.astype(np.float64) / (np.linalg.norm(w_int_D.astype(np.float64)) + 1e-12)
         w_F_unit = w_int_F.astype(np.float64) / (np.linalg.norm(w_int_F.astype(np.float64)) + 1e-12)
         
         sim_a = float(np.dot(w_A_unit, centre))
         sim_b = float(np.dot(w_B_unit, centre))
-        sim_c = float(np.dot(w_C_unit, centre))
-        sim_d = float(np.dot(w_D_unit, centre))
         sim_f = float(np.dot(w_F_unit, centre))
         
         norm_a = np.linalg.norm(w_A)
         norm_b = np.linalg.norm(w_B)
-        norm_c = np.linalg.norm(w_int_C) / 128.0
-        norm_d = np.linalg.norm(w_int_D) / 128.0
         norm_f = np.linalg.norm(w_int_F) / 128.0
         
         sim_to_center_A.append(sim_a)
         sim_to_center_B.append(sim_b)
-        sim_to_center_C.append(sim_c)
-        sim_to_center_D.append(sim_d)
         sim_to_center_F.append(sim_f)
         
         norm_A.append(norm_a)
         norm_B.append(norm_b)
-        norm_C.append(norm_c)
-        norm_D.append(norm_d)
         norm_F.append(norm_f)
         
         # Raw dot products (unnormalized) = sim × norm
@@ -226,13 +173,9 @@ def run_with_center_similarity(
     return {
         "sim_A": np.array(sim_to_center_A),
         "sim_B": np.array(sim_to_center_B),
-        "sim_C": np.array(sim_to_center_C),
-        "sim_D": np.array(sim_to_center_D),
         "sim_F": np.array(sim_to_center_F),
         "norm_A": np.array(norm_A),
         "norm_B": np.array(norm_B),
-        "norm_C": np.array(norm_C),
-        "norm_D": np.array(norm_D),
         "norm_F": np.array(norm_F),
         "raw_sim_A": np.array(raw_sim_A),
         "raw_sim_B": np.array(raw_sim_B),

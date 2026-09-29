@@ -3,17 +3,24 @@ CLP-SNN: Continual Learning with Prototypes for Spiking Neural Networks
 Code accompanying "Real-time Continual Learning on Intel Loihi 2" (under review).
 
 Key properties:
-- Self-normalizing local learning rule: Δw = α·r·(x − w·y)  where y = wᵀx
-  The term −α·r·y·w provides implicit weight-norm regularization (no explicit renorm).
+- Self-normalizing local learning rule: Δw = α·|r|·(r·x − w·y)  where y = wᵀx
+  The decay −α·y·w (gated by |r|, not by the sign of r) keeps ‖w‖ ≈ 1 on
+  correct predictions (unit norm attracting) and shrinks ‖w‖ on incorrect
+  ones, so the norm stays bounded without explicit renorm. Gating the decay
+  by r itself would make the unit norm repelling for r = −1 (runaway growth).
 - Temporal Winner-Take-All: single winner k* = argmax(wₖᵀx) subject to y_{k*} > θ
-- Goodness-based adaptive learning rate: α_i = 1/g_i (g only increments on r > 0)
+- Goodness-based adaptive learning rate: g_i ← max(1, g_i + r·g_inc), then
+  α_i = 1/g_i is used for this update (allocation imprints with α = 1, the
+  first learning update uses α = 1/(1 + g_inc))
 - Three-factor rule: r ∈ {+1, −1}  (correct → +1, incorrect → −1)
 - Only the winner prototype is updated per sample
 - Supervised allocation: new prototype for unseen class OR when no winner exceeds θ
 
 Learning rule has exactly two implementations, selected by `use_quantization`:
-  * False → Float self-normalizing Taylor update (Variant B).
-  * True  → Lava-faithful bit-approximate INT pipeline (Variant F).
+  * False → Float self-normalizing Taylor update (`_update_winner_float`;
+            "Variant B" in analysis/).
+  * True  → Lava-faithful bit-approximate INT pipeline (`_update_winner_int8`;
+            "Variant F" in analysis/).
             Mirrors `LearningRuleApplierBitApprox.apply()` 1:1: int32 MAC,
             per-product FLOOR right-shift, 15-bit saturation, single
             shared-scalar stochastic round per step. See
@@ -472,41 +479,42 @@ class CLPSNN(nn.Module):
     def _update_winner(self, winner_idx: int, x: torch.Tensor, r: float) -> None:
         """Apply the self-normalising local learning rule to the winner.
 
-        Rule (Eq. 1–3 / 6 in arXiv:2511.01553):
-            Δw  = α · r · (x − w · y)   where y = wᵀx
+        Rule:  Δw = α · (r · x − w · y)   where y = wᵀx, r ∈ {+1, −1}
+        The reward gates only the Hebbian term; the decay −α·y·w acts on
+        every update.  For r = +1 the norm is attracted to 1; for r = −1 it
+        shrinks (first order: Δ‖w‖² = −2αy(1 + ‖w‖²)), so it stays bounded.
+        With r on the decay too, r = −1 would push the norm away from 1.
 
-        Dispatches to either the float path (Variant B) or the Lava-faithful
-        integer path (Variant F) depending on `use_quantization`.  Goodness
-        g_i and learning rate α_i are updated only on r > 0 (Eq. 9–11).
+        Metaplasticity first: g ← max(1, g + r·g_inc) and α = 1/g, then the
+        update uses this new α (allocation imprints with α = 1, so the first
+        learning update averages instead of overwriting).
+
+        Dispatches to either the float path or the Lava-faithful integer
+        path depending on `use_quantization`.
         """
+        g = max(1.0, self.goodness[winner_idx].item() + r * self.g_inc)
+        self.goodness[winner_idx] = g
+        self.alphas[winner_idx] = 1.0 / g
+
         if self.use_quantization:
-            self._update_winner_int_F(winner_idx, x, r)
+            self._update_winner_int8(winner_idx, x, r)
         else:
-            self._update_winner_float_B(winner_idx, x, r)
+            self._update_winner_float(winner_idx, x, r)
 
-        # Update goodness and decay learning rate only on positive reward
-        if r > 0:
-            self.goodness[winner_idx] += self.g_inc
-            self.alphas[winner_idx] = 1.0 / max(self.goodness[winner_idx].item(), 1.0)  # Prevent division by zero
+    def _update_winner_float(self, winner_idx: int, x: torch.Tensor, r: float) -> None:
+        """FP32 self-normalising Taylor update ("Variant B" in analysis/).
 
-        if r < 0:
-            self.goodness[winner_idx] -= self.g_inc
-            self.alphas[winner_idx] = 1.0 / max(self.goodness[winner_idx].item(), 1.0)  # Prevent division by zero
-
-    def _update_winner_float_B(self, winner_idx: int, x: torch.Tensor, r: float) -> None:
-        """Variant B — FP32 self-normalising Taylor update.
-
-        Δw = α · r · (x − w · y),  y = wᵀx
-        The −α·r·y·w term is a first-order Taylor expansion of explicit L2
+        Δw = α · (r · x − w · y),  y = wᵀx
+        The −α·y·w term is a first-order Taylor expansion of explicit L2
         renorm, keeping ‖w‖ ≈ 1 implicitly without division.
         """
         w = self.prototypes[winner_idx]
         alpha = self.alphas[winner_idx].item()
         y = (w * x).sum().item()
-        self.prototypes[winner_idx] = w + alpha * r * (x - w * y)
+        self.prototypes[winner_idx] = w + alpha * (r * x - w * y)
 
-    def _update_winner_int_F(self, winner_idx: int, x: torch.Tensor, r: float) -> None:
-        """Variant F — Lava-faithful bit-approximate integer update.
+    def _update_winner_int8(self, winner_idx: int, x: torch.Tensor, r: float) -> None:
+        """Lava-faithful bit-approximate integer update ("Variant F" in analysis/).
 
         Ported from analysis/norm_demo.py::variant_F_step.
         Mirrors Lava's LearningRuleApplierBitApprox.apply() 1:1; see
@@ -521,13 +529,14 @@ class CLPSNN(nn.Module):
             P2:  mac = −α · y_int · w_int               # int32 MAC (20-bit)
                  mac >>= 7                              # Lava shift_r=5 + user +2 compensation
                                                          #  (matches 2^-9 paper scale)
-                 result += r · mac                      # saturating add
+                 result += mac                          # saturating add (no reward factor)
             Single shared-scalar stochastic round (one rng.random() per call),
             then >> 7 back to 8-bit stored weight.
 
-        Alpha packing note: α_int is packed into Lava's s_mantissa slot, which
-        hardware restricts to [-8, 7].  Our sim uses a wider range (up to 127)
-        as a sweepable knob — a known, intentional divergence from strict HW.
+        Alpha note: α_int = round(128/g) in [0, 127] is meant to be held as a
+        7-bit post-synaptic trace in the on-chip rule (not the 4-bit scaling
+        mantissa).  The shifts below model the mantissa packing, so the exact
+        rounding of a trace-based on-chip rule would differ slightly.
         """
         S = int(self.INT8_SCALE)  # 128
         g = (self.goodness[winner_idx].item())
@@ -577,7 +586,6 @@ class CLPSNN(nn.Module):
         # FLOOR arithmetic right-shift (matches numpy np.right_shift on int32,
         # i.e. torch.bitwise_right_shift which is arithmetic for signed dtypes).
         mac2 = torch.bitwise_right_shift(mac2, 7)
-        mac2 = mac2 * torch.tensor(r_int, dtype=torch.int32, device=device)
         mac2 = torch.clamp(mac2, acc_min, acc_max)
         result = torch.clamp(result + mac2, acc_min, acc_max)
 
