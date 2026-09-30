@@ -37,8 +37,8 @@ if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
 from models.CLP import ContinuallyLearningPrototypes  # noqa: E402
-from models.CLP_SNN import CLPSNN  # noqa: E402
-from models.clp_snn_configs import CONFIGS as CLP_SNN_CONFIGS  # noqa: E402
+from models.CLP_SNN_Loihi import CLPSNNLoihi  # noqa: E402
+from models.clp_snn_configs import LOIHI_CONFIGS  # noqa: E402
 from models.SLDA import StreamingLDA  # noqa: E402
 from models.NCM import NearestClassMean  # noqa: E402
 from models.Replay import StreamingSoftmax  # noqa: E402
@@ -243,8 +243,9 @@ def build_classifier(name: str):
         )
 
     elif name == "CLP-SNN":
-        return CLPSNN(FEATURE_SIZE, num_classes=NUM_CLASSES,
-                      device=d, **CLP_SNN_CONFIGS["paper_25shot"])
+        # CLP-SNN as deployed on Loihi 2 (emulator, deployment parameters)
+        return CLPSNNLoihi(FEATURE_SIZE, num_classes=NUM_CLASSES,
+                           **LOIHI_CONFIGS["paper_25shot"])
 
     raise ValueError(f"Unknown variant: {name!r}")
 

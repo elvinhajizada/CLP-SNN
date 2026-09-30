@@ -122,8 +122,8 @@ sys.path.insert(0, str(REPO_ROOT))
 
 # Import models
 from models.CLP import ContinuallyLearningPrototypes
-from models.CLP_SNN import CLPSNN
-from models.clp_snn_configs import CONFIGS as CLP_SNN_CONFIGS  # noqa: E402
+from models.CLP_SNN_Loihi import CLPSNNLoihi
+from models.clp_snn_configs import LOIHI_CONFIGS  # noqa: E402
 from models.SLDA import StreamingLDA
 from models.NCM import NearestClassMean
 from models.Replay import StreamingSoftmax
@@ -293,8 +293,9 @@ def instantiate_classifier(
         )
 
     elif classifier_type == "clp_snn":
-        return CLPSNN(feature_size, num_classes=num_classes,
-                      device=device, **CLP_SNN_CONFIGS["paper_1shot"])
+        # CLP-SNN as deployed on Loihi 2 (emulator, deployment parameters)
+        return CLPSNNLoihi(feature_size, num_classes=num_classes,
+                           **LOIHI_CONFIGS["paper_1shot"])
 
     else:
         raise ValueError(f"Unknown classifier type: {classifier_type}")

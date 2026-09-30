@@ -14,6 +14,8 @@ CLP-SNN is a spiking neural network for online continual learning, featuring a s
 | Folder / File | Description | Paper section |
 |---|---|---|
 | `models/CLP_SNN.py` | Main contribution: spiking CLP with float (Taylor) and INT (Lava-faithful) learning paths | Methods §2.1–2.2 |
+| `models/CLP_SNN_Loihi.py` | Emulator of the CLP-SNN deployment on Loihi 2 (allocation-only, integer arithmetic, spike-timing winner) | Results, Supplemental |
+| `models/clp_snn_configs.py` | Named CLP-SNN configurations: Loihi 2 deployment parameters and simulator presets | — |
 | `models/CLP.py` | Original CLP baseline | Methods §2.1 |
 | `models/SLDA.py` | Streaming LDA (standard and Frozen Σ variants) | Baselines |
 | `models/NCM.py` | Nearest Class Mean baseline | Baselines |
@@ -23,6 +25,7 @@ CLP-SNN is a spiking neural network for online continual learning, featuring a s
 | `experiments/clp_vs_baselines_25shot.py` | 25-shot accuracy comparison: same 8 main classifiers | Results Fig. 3b, Table 1 |
 | `experiments/clp_vs_clp_snn_1shot.py` | 1-shot ablation of CLP-SNN float vs INT learning variants | Supplemental |
 | `experiments/forgetting_experiments_1shot.py` | True-Peak FM forgetting analysis | Results Fig. 4 |
+| `experiments/clp_snn_gap_decomposition.py` | Sources of the accuracy gap between CLP and CLP-SNN on Loihi 2 | Supplemental |
 | `experiments/clp_snn_threshold_g_inc_sweep.py` | Threshold / g_inc hyperparameter sweep | Supplemental |
 | `notebooks/` | Companion notebooks reproducing all paper figures | — |
 | `analysis/` | Self-normalization and quantization analysis scripts | Supplemental Figs. S1–S2 |
@@ -105,40 +108,75 @@ python experiments/forgetting_experiments_1shot.py
 
 # Hyperparameter sweep — threshold vs g_inc (Supplemental)
 python experiments/clp_snn_threshold_g_inc_sweep.py
+
+# Accuracy gap between CLP and CLP-SNN on Loihi 2, factor by factor (Supplemental)
+python experiments/clp_snn_gap_decomposition.py --sweep
 ```
 
 Results and figures are saved to `experiments/results/` and `images/` respectively.
+Each script has a `SAVE_PDF = True` flag near the top — set it to `False` to skip
+`.pdf` output and save only `.png` (useful on headless servers without a PDF backend).
+
+Companion notebooks in `notebooks/` walk through each experiment interactively.
 
 ---
 
-## CLP-SNN simulator configurations
+## CLP-SNN configurations
 
-All CLP-SNN configurations are named presets in `models/clp_snn_configs.py`:
+### Paper: CLP-SNN on Loihi 2
+
+The CLP-SNN accuracies reported in the paper are measured on Loihi 2.
+`models/CLP_SNN_Loihi.py` emulates that deployment in integer arithmetic, and the
+experiment scripts use it with the deployment parameters in `LOIHI_CONFIGS`:
+
+```python
+from models.CLP_SNN_Loihi import CLPSNNLoihi
+from models.clp_snn_configs import LOIHI_CONFIGS
+clf = CLPSNNLoihi(1280, num_classes=40, **LOIHI_CONFIGS["paper_1shot"])
+```
+
+The emulator follows the deployed network, and no parameter is fitted to the chip's results:
+
+- **input:** negative features clipped, L2-normalised and rounded to 7 bits, x_int = round(128·x);
+- **allocation-only:** on novelty or an incorrect prediction, a new prototype is imprinted with W = x_int and then frozen;
+- **threshold:** during training a prototype wins only if its cosine similarity to the input is at least 0.708 (1-shot) or 0.507 (25-shot);
+- **winner selection:** by spike time; one time step spans 0.024 (1-shot) or 0.043 (25-shot) of cosine similarity, and prototypes that spike in the same step vote on the label.
+
+| Preset | Threshold | Resolution | Pool | Final acc. (%) | AAA (%) | Loihi 2 final (%) | Loihi 2 AAA (%) |
+|---|---|---|---|---|---|---|---|
+| `paper_1shot` | 0.708 | 0.024 | 230 | 55.5 ± 2.6 | 66.7 | 55.4 ± 2.5 | 66.6 |
+| `paper_25shot` | 0.507 | 0.043 | 1,400 | 90.4 ± 0.4 | 81.1 | 90.0 ± 0.4 | 81.0 |
+
+The experiment scripts evaluate all methods on the same test frames (seed 42). The
+25-shot chip runs drew their test frames with the run seed; on those frames the
+emulator gives 90.1% (AAA 81.0%, curve RMSE 0.5 points against the chip). Ties are
+broken at random, as on the chip, so single runs vary by a few tenths of a point.
+
+`experiments/clp_snn_gap_decomposition.py` switches the chip's features on one at a
+time, from CLP to the deployment (final accuracy, mean over seeds 10/20/30):
+
+| Step | 1-shot | 25-shot |
+|---|---|---|
+| CLP | 56.97 | 92.96 |
+| Allocation-only, INT8, CLP's threshold (0.75) | −0.11 | −0.22 |
+| + chip input preprocessing | +0.33 | −0.22 |
+| + chip threshold (0.708 / 0.507) | −1.31 | −2.14 |
+| + spike-timing winner selection | −0.50 | +0.16 |
+| + chip test frames (25-shot) | — | −0.44 |
+| Emulator to Loihi 2 | −0.01 | −0.11 |
+| **Loihi 2 (measured)** | **55.38** | **89.99** |
+
+With `--sweep` it also reports accuracy and prototype count over the threshold.
+
+### Simulator configurations (not used for paper numbers)
+
+`CONFIGS` holds settings for the simulator in `models/CLP_SNN.py`:
 
 ```python
 from models.CLP_SNN import CLPSNN
 from models.clp_snn_configs import CONFIGS
-clf = CLPSNN(1280, num_classes=40, device="cpu", **CONFIGS["paper_1shot"])
+clf = CLPSNN(1280, num_classes=40, device="cpu", **CONFIGS["adaptive_fp32_1shot"])
 ```
-
-### Paper configurations (reproduce CLP-SNN on Loihi 2)
-
-The CLP-SNN accuracies reported in the paper are measured on Loihi 2. The
-paper presets make the simulator behave like the chip deployment:
-
-- **allocation-only:** each prototype is imprinted once and then frozen, and a misclassified input is allocated as a new prototype;
-- **INT8 arithmetic;**
-- **the chip's prototype pool;**
-- **the effective similarity thresholds chosen for the on-chip experiments.**
-
-The experiment scripts listed above use these presets. The chip's measured accuracy curves are in `data/loihi2/`.
-
-| Preset | Setting | Final acc. (%) | AAA (%) | Prototypes | Loihi 2 final (%) |
-|---|---|---|---|---|---|
-| `paper_1shot` | allocation-only INT8, θ 0.66, 230 slots | 55.6 ± 2.2 | 67.2 | 160 | 55.4 ± 2.5 |
-| `paper_25shot` | allocation-only INT8, θ 0.47, 1,400 slots | 90.2 ± 0.3 | 80.9 | 1,226 | 90.0 ± 0.4 |
-
-### Other configurations (not used for paper numbers)
 
 **Adaptive presets** run the full learning rule: the winner is also updated on correct and incorrect predictions. This path runs in simulation only; the chip deployment is allocation-only.
 
@@ -157,11 +195,7 @@ Mean over seeds 10/20/30, OpenLORIS test set.
 
 For comparison, CLP scores 57.0 (1-shot) and 93.0 (25-shot).
 
-Pool sizes are chosen so that no preset fills its pool. Adaptive INT8 loses some accuracy at low thresholds, because small averaging steps fall below the 8-bit rounding floor; FP32 does not. `experiments/clp_snn_hw_comparison.py` sweeps the threshold for all variants.
-Each script has a `SAVE_PDF = True` flag near the top — set it to `False` to skip
-`.pdf` output and save only `.png` (useful on headless servers without a PDF backend).
-
-Companion notebooks in `notebooks/` walk through each experiment interactively.
+Adaptive INT8 loses some accuracy at low thresholds, because small averaging steps fall below the 8-bit rounding floor; FP32 does not. `experiments/clp_snn_hw_comparison.py` sweeps the threshold for all simulator variants.
 
 ---
 
@@ -184,7 +218,7 @@ See `benchmarks/README.md` for full instructions.
 
 ## Note on Loihi 2 Hardware Implementation
 
-The Loihi 2 on-chip implementation of CLP-SNN requires access to Intel's proprietary Lava-Loihi framework and Loihi 2 hardware. The simulation implementation in `models/CLP_SNN.py` mirrors the hardware design faithfully (see `LearningConnectionModelBitApproximate` in the lava repo for the integer pipeline specification). Researchers with Loihi 2 access may contact the authors for the hardware implementation code.
+The Loihi 2 on-chip implementation of CLP-SNN requires access to Intel's proprietary Lava-Loihi framework and Loihi 2 hardware. `models/CLP_SNN_Loihi.py` emulates the deployed network, and `models/CLP_SNN.py` implements the learning rule's integer pipeline (see `LearningConnectionModelBitApproximate` in the lava repo). Researchers with Loihi 2 access may contact the authors for the hardware implementation code.
 
 ---
 

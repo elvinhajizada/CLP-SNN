@@ -32,13 +32,12 @@ import op_counts  # noqa: E402  (pure python; torch only inside --measure)
 # Loihi 2 per-sample OCL step, unchanged from the round-2 manuscript Table 1.
 LOIHI = {"lat_ms": 0.33, "tot_mJ": 0.05, "dyn_mJ": 0.01}
 
-# Prototype slots instantiated on Loihi 2 per run (lava-loihi repo,
-# tutorials/in_depth/clp): the cost benchmark and the two accuracy runs use
-# different network sizes.
+# Prototype slots instantiated on Loihi 2 per run (deployment configurations):
+# the cost benchmark and the two accuracy runs use different network sizes.
 LOIHI_SLOTS = {
-    "benchmark": (300, "benchmark_clp.py:50"),
-    "1-shot": (230, "openloris/clp_learning_test_openloris.py:121"),
-    "25-shot": (1400, "openloris/clp_25_shot_openloris.py:215"),
+    "benchmark": (300, "Loihi 2 benchmark network"),
+    "1-shot": (230, "Loihi 2 1-shot deployment"),
+    "25-shot": (1400, "Loihi 2 25-shot deployment"),
 }
 
 # Final accuracy, mean +/- std over 3 class orders (round-2 Table 1; SLDA from
@@ -286,7 +285,7 @@ def main():
              + f"Table 1 costs are seed-10 measurements, whose stream-mean allocation is {seed10_mean:g} "
              "(the working point of `analysis/op_counts.py`). CLP-SNN on Loihi 2 sweeps every instantiated "
              f"slot; its cost rows use the {LOIHI_SLOTS['benchmark'][0]}-slot benchmark network "
-             f"(`{LOIHI_SLOTS['benchmark'][1]}`) while its accuracy runs instantiate "
+             f"while its accuracy runs instantiate "
              f"{LOIHI_SLOTS['1-shot'][0]} (1-shot) and {LOIHI_SLOTS['25-shot'][0]:,} (25-shot) slots. "
              "So for both methods the cost rows are 300-slot, 1-shot-stream numbers and the 25-shot "
              "accuracies come from larger prototype pools.")
@@ -352,7 +351,7 @@ def main():
     for rid, name, v1, v25, rule in rows_m3:
         L.append(f"| {rid} | {name} | {mb(v1)} | {mb(v25)} | {rule} |")
         src_m3 = "op_counts.py state formulas" if v1 == v25 else (
-            "lava-loihi tutorial configs" if "loihi" in rid else src_a)
+            "Loihi 2 deployment configurations" if "loihi" in rid else src_a)
         put(f"{rid}.1shot_MB", round(v1 / 1e6, 3), src_m3)
         put(f"{rid}.25shot_MB", round(v25 / 1e6, 3), src_m3)
     L.append("")

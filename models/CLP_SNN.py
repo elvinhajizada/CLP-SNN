@@ -286,12 +286,11 @@ class CLPSNN(nn.Module):
     # ──────────────────────────────────────────────────────────────────────
 
     def _quantize_input(self, x: torch.Tensor) -> torch.Tensor:
-        """Loihi input preprocessing: clip negatives → re-L2-normalize → round(x·128)/128.
+        """Quantise an L2-normalised input to 7-bit resolution: round(x·128)/128.
 
-        Mirrors the hardware pipeline exactly:
-          1. Clip negatives to 0 (hardware ingests non-negative traces only)
-          2. Re-L2-normalize (after clipping, norm changes → renormalize)
-          3. Quantize to 7-bit resolution: round(x · 128) / 128
+        Negative features are kept. The Loihi 2 host code additionally clips
+        negatives to 0 and re-normalises before rounding; that step is
+        modelled in models/CLP_SNN_Loihi.py, not here.
 
         Works for both 1-D (single sample) and 2-D (batch) tensors.
         """
@@ -620,7 +619,7 @@ class CLPSNN(nn.Module):
         x = x.to(self.device).float().view(self.feature_size)
         y_int = int(y.item())
 
-        # Quantise input: clip negatives → re-L2-normalize → round(x·128)/128
+        # Quantise input: round(x·128)/128 (negatives kept, see _quantize_input)
         x_q = self._quantize_input(x) if self.use_quantization else x
 
         # ── Supervised allocation for unseen classes ───────────────────────

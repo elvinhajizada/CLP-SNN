@@ -6,20 +6,19 @@ CLP-SNN Loihi 2 hardware results, on the 1-shot and 25-shot OpenLoris
 benchmarks.
 
 Motivation: the Loihi 2 deployment ran CLP-SNN in allocation-only mode
-(prototypes frozen after initial allocation — the limitation stated in the
-paper), at a high activation threshold with a large prototype pool. The
-committed simulation configs run the opposite regime (adaptive updates,
-low threshold, few prototypes). This experiment maps the full operating
-space: adaptive vs non-adaptive x FP32 vs INT8 x threshold in [0.70, 0.85],
-reporting final accuracy, AAA (mean accuracy over the published checkpoint
-cadence), and the number of allocated prototypes (neurons).
+(prototypes frozen after initial allocation, the limitation stated in the
+paper). This experiment maps the simulator's operating space: adaptive vs
+non-adaptive x FP32 vs INT8 x threshold in [0.70, 0.85], reporting final
+accuracy, AAA (mean accuracy over the published checkpoint cadence), and the
+number of allocated prototypes (neurons). The deployment itself is emulated
+in models/CLP_SNN_Loihi.py (experiments/clp_snn_gap_decomposition.py).
 
 Variants:
   CLP      - ContinuallyLearningPrototypes, sim_th_init = threshold
   FP32-A   - CLPSNN float,  adaptive_protos=True  (update on hit/miss)
   FP32-NA  - CLPSNN float,  adaptive_protos=False (allocation-only, HW mode)
   INT8-A   - CLPSNN integer pipeline, adaptive
-  INT8-NA  - CLPSNN integer pipeline, allocation-only (closest to Loihi 2)
+  INT8-NA  - CLPSNN integer pipeline, allocation-only
 
 Protocol identical to clp_vs_baselines_{1shot,25shot}.py (imported):
 same seeds, data ordering, test set, and checkpoint cadence
