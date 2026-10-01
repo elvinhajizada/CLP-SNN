@@ -13,12 +13,10 @@ on one at a time, starting from CLP:
   + chip preprocessing    negative features clipped before normalising
   + chip threshold        cosine 0.708 / 0.507
   + spike-timing winner   winner resolved in time steps, label vote on ties
-  + chip test subset      25-shot only: the chip script drew the test frames
-                          with the run seed instead of seed 42
-  Loihi 2                 measured (data/loihi2/)
 
-Spike-timing levels average several tie-breaking seeds. The last emulator
-level is also compared with the chip's accuracy curves (validation).
+Spike-timing levels average several tie-breaking seeds. The full emulator is
+also evaluated as on the chip and compared with the chip's accuracy curves in
+data/loihi2/ (validation).
 
 --sweep adds the accuracy / prototype-count trade-off of the full emulator
 over the similarity threshold.
@@ -61,32 +59,26 @@ SWEEP_TH = {"1shot": [0.60, 0.65, 0.708, 0.75, 0.80, 0.85],
             "25shot": [0.50, 0.55, 0.60, 0.65, 0.708, 0.75, 0.80, 0.85]}
 
 
-def levels(setting):
-    """(name, emulator options, test subset, repetitions) per ladder level."""
-    L = [("alloc-only INT8, theta 0.75",
-          dict(preprocess="sim", winner="argmax", threshold=0.75,
-               n_protos=BIG_POOL), "sim", 1),
-         ("+ chip preprocessing",
-          dict(preprocess="chip", winner="argmax", threshold=0.75,
-               n_protos=BIG_POOL), "sim", 1),
-         ("+ chip threshold",
-          dict(preprocess="chip", winner="argmax", n_protos=BIG_POOL), "sim", 1),
-         ("+ spike-timing winner",
-          dict(preprocess="chip", winner="spike"), "sim", TIE_REPS)]
-    if setting == "25shot":
-        L.append(("+ chip test subset",
-                  dict(preprocess="chip", winner="spike"), "chip", TIE_REPS))
-    return L
+FULL = dict(preprocess="chip", winner="spike")
+LEVELS = [  # (name, emulator options, repetitions)
+    ("alloc-only INT8, theta 0.75",
+     dict(preprocess="sim", winner="argmax", threshold=0.75, n_protos=BIG_POOL), 1),
+    ("+ chip preprocessing",
+     dict(preprocess="chip", winner="argmax", threshold=0.75, n_protos=BIG_POOL), 1),
+    ("+ chip threshold",
+     dict(preprocess="chip", winner="argmax", n_protos=BIG_POOL), 1),
+    ("+ spike-timing winner", FULL, TIE_REPS),
+]
 
 
 # ── Data ──────────────────────────────────────────────────────────────────────
 
-def test_set(setting, subset, seed):
-    """Test features/labels: seed-42 subset (all methods) or the chip's."""
-    if subset == "sim":
+def test_set(setting, protocol, seed):
+    """Test features/labels as in the experiment scripts, or as on the chip."""
+    if protocol == "scripts" or setting == "1shot":
         X_raw, _, y = (b1 if setting == "1shot" else b25).load_test_set()
         return X_raw, y
-    np.random.seed(seed)              # as clp_25_shot_openloris.py on chip
+    np.random.seed(seed)              # 25-shot chip evaluation
     X, y = np.load(b25.TEST_X_PATH), np.load(b25.TEST_Y_PATH)
     idx = []
     for c in np.unique(y):
@@ -98,9 +90,9 @@ def accuracy(clf, X, y):
     return (clf.predict(X).argmax(1) == y).float().mean().item() * 100
 
 
-def run_stream(clf, setting, seed, subset):
+def run_stream(clf, setting, seed, protocol="scripts"):
     """Checkpoint accuracy curve on the published cadence."""
-    X_te, y_te = test_set(setting, subset, seed)
+    X_te, y_te = test_set(setting, protocol, seed)
     X_te = X_te / X_te.norm(dim=1, keepdim=True)
     curve = []
     if setting == "1shot":
@@ -132,7 +124,7 @@ def build_clp(setting):
 # ── Jobs ──────────────────────────────────────────────────────────────────────
 
 def job(args):
-    kind, setting, name, opts, subset, seed, rep = args
+    kind, setting, name, opts, protocol, seed, rep = args
     torch.set_num_threads(1)
     if kind == "clp":
         clf = build_clp(setting)
@@ -140,7 +132,7 @@ def job(args):
         cfg = dict(LOIHI_CONFIGS[f"paper_{setting}"])
         cfg.update(opts)
         clf = CLPSNNLoihi(b1.FEATURE_SIZE, b1.NUM_CLASSES, seed=rep, **cfg)
-    curve = run_stream(clf, setting, seed, subset)
+    curve = run_stream(clf, setting, seed, protocol)
     n = None if kind == "clp" else clf.get_num_prototypes_used()
     return args, curve, n
 
@@ -162,13 +154,15 @@ def main():
 
     jobs = []
     for st in ("1shot", "25shot"):
-        jobs += [("clp", st, "CLP", {}, "sim", s, 0) for s in SEEDS]
-        for name, opts, subset, reps in levels(st):
-            jobs += [("emu", st, name, opts, subset, s, r)
+        jobs += [("clp", st, "CLP", {}, "scripts", s, 0) for s in SEEDS]
+        for name, opts, reps in LEVELS:
+            jobs += [("emu", st, name, opts, "scripts", s, r)
                      for s in SEEDS for r in range(reps)]
+        jobs += [("emu", st, "validation", FULL, "chip", s, r)
+                 for s in SEEDS for r in range(TIE_REPS)]
         if args.sweep:
             jobs += [("emu", st, f"sweep {th}", dict(threshold=th, n_protos=BIG_POOL),
-                      "sim", s, 0) for th in SWEEP_TH[st] for s in SEEDS]
+                      "scripts", s, 0) for th in SWEEP_TH[st] for s in SEEDS]
 
     res = {}
     with ProcessPoolExecutor(args.workers) as ex:
@@ -187,7 +181,7 @@ def main():
     ladder, valid = [], []
     for st in ("1shot", "25shot"):
         chip = np.load(LOIHI_DIR / f"accuracies_clp_loihi_{st}.npy")[:, 0, :].T * 100
-        names = ["CLP"] + [n for n, *_ in levels(st)]
+        names = ["CLP"] + [n for n, *_ in LEVELS]
         prev = None
         print(f"\n== {st}: final accuracy (%), mean over seeds; step = change from row above")
         for name in names:
@@ -200,14 +194,9 @@ def main():
                                aaa=round(aaa.mean(), 2), protos=round(float(np.nanmean(n)))
                                if not np.isnan(np.nanmean(n)) else ""))
             prev = fin
-        step = chip[:, -1] - prev
-        print(f"  {'Loihi 2 (measured)':30s} {chip[:, -1].mean():6.2f}  step {step.mean():+6.2f}"
-              f"  per-seed {np.round(step, 2)}")
-        ladder.append(dict(setting=st, level="Loihi 2 (measured)", final=round(chip[:, -1].mean(), 2),
-                           step=round(step.mean(), 2), aaa=round(chip.mean(), 2), protos=""))
 
-        # Validation: full emulator vs chip, on the chip's test protocol
-        fin, aaa, curves, n = summary(st, names[-1])
+        # Validation: full emulator evaluated as on the chip
+        fin, aaa, curves, n = summary(st, "validation")
         rmse = np.sqrt(((curves - chip) ** 2).mean())
         print(f"  validation: emulator final {fin.mean():.2f} vs chip {chip[:, -1].mean():.2f}; "
               f"AAA {aaa.mean():.2f} vs {chip.mean():.2f}; curve RMSE {rmse:.2f} pp")

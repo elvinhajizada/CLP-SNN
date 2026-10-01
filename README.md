@@ -147,24 +147,23 @@ The emulator follows the deployed network, and no parameter is fitted to the chi
 | `paper_1shot` | 0.708 | 0.024 | 230 | 55.5 ± 2.6 | 66.7 | 55.4 ± 2.5 | 66.6 |
 | `paper_25shot` | 0.507 | 0.043 | 1,400 | 90.4 ± 0.4 | 81.1 | 90.0 ± 0.4 | 81.0 |
 
-The experiment scripts evaluate all methods on the same test frames (seed 42). The
-25-shot chip runs drew their test frames with the run seed; on those frames the
-emulator gives 90.1% (AAA 81.0%, curve RMSE 0.5 points against the chip). Ties are
-broken at random, as on the chip, so single runs vary by a few tenths of a point.
+Evaluated as on the chip, the emulator reproduces the measured accuracy: 55.4% vs
+55.4% (1-shot) and 90.1% vs 90.0% (25-shot), with curve RMSE 0.4 / 0.5 points. Ties
+are broken at random, as on the chip, so single runs vary by a few tenths of a point.
 
-`experiments/clp_snn_gap_decomposition.py` switches the chip's features on one at a
-time, from CLP to the deployment (final accuracy, mean over seeds 10/20/30):
+`experiments/clp_snn_gap_decomposition.py` adds the features of the deployment to CLP
+one at a time (final accuracy in %, prototypes in parentheses, mean over seeds 10/20/30):
 
-| Step | 1-shot | 25-shot |
+| Configuration | 1-shot | 25-shot |
 |---|---|---|
-| CLP | 56.97 | 92.96 |
-| Allocation-only, INT8, CLP's threshold (0.75) | −0.11 | −0.22 |
-| + chip input preprocessing | +0.33 | −0.22 |
-| + chip threshold (0.708 / 0.507) | −1.31 | −2.14 |
-| + spike-timing winner selection | −0.50 | +0.16 |
-| + chip test frames (25-shot) | — | −0.44 |
-| Emulator to Loihi 2 | −0.01 | −0.11 |
-| **Loihi 2 (measured)** | **55.38** | **89.99** |
+| CLP | 57.0 (127) | 93.0 (1,769) |
+| Imprint-only, INT8, CLP's threshold (0.75) | 56.9 (242) | 92.7 (3,673) |
+| + chip input preprocessing | 57.2 (210) | 92.5 (3,083) |
+| + chip threshold (0.708 / 0.507) | 55.9 (167) | 90.4 (1,217) |
+| + spike-timing winner selection | 55.4 (168) | 90.5 (1,302) |
+
+Imprint-only operation matches CLP's accuracy at CLP's threshold, but with about twice
+as many prototypes; the full adaptive rule (simulator presets below) avoids that overhead.
 
 With `--sweep` it also reports accuracy and prototype count over the threshold.
 
