@@ -38,8 +38,8 @@ only differs from the old code on CUDA; it was verified on CPU only):
 pytest tests/test_benchmark_parity.py -k "clp_bitwise" -q   # cuda cases run automatically
 ```
 
-Then Steps 1-3 as usual for the CLP runs, and regenerate the ledger with
-`benchmarks/make_ledger.py` and `benchmarks/make_table1_tex.py`.
+Then Steps 1-3 as usual for the CLP runs, and regenerate Table 1 with
+`benchmarks/make_table1_tex.py`.
 
 ## Step 1: prepare the system
 
