@@ -83,6 +83,7 @@ the clone to fetch the missing data.
 | `data/X_test.npy` | Test features (60 samples/class, balanced, seed 42) |
 | `data/y_test.npy` | Test labels |
 | `data/loihi2/accuracies_clp_loihi_{1shot,25shot}.npy` | CLP-SNN accuracy curves measured on Loihi 2 (checkpoints × 1 × seeds 10/20/30) |
+| `data/loihi2/loihi2_cost_benchmark.csv` | CLP-SNN per-sample OCL step on Loihi 2, aggregated from the on-chip measurement logs (latency, power and energy of the Table 1 benchmark network; power is the Loihi 2 chip power, not full-system power) |
 
 Features are 1280-dimensional EfficientNet-B0 outputs, L2-normalized before all prototype-based classifiers.
 The raw OpenLORIS dataset can be downloaded from [the OpenLORIS project](https://lifelong-robotic-vision.github.io/dataset/scene.html).

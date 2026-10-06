@@ -1,0 +1,2 @@
+method,device,input_dim,prototype_slots,latency_ms,total_power_W,static_power_W,dynamic_power_W,total_energy_mJ,dynamic_energy_mJ,total_edp_uJs,dynamic_edp_uJs
+CLP-SNN,Loihi 2 (single chip),1280,300,0.33,0.16,0.12,0.039,0.05,0.01287,0.018,0.0042471
