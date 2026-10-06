@@ -2,7 +2,7 @@
 Streaming Softmax with Experience Replay — Hayes et al. 2022.
 Adapted from Tyler Hayes' Embedded-CL (https://github.com/tyler-hayes/Embedded-CL).
 
-Paper config: buffer=800, replay_samples=50, lr=0.001.
+Paper config: buffer=800, replay_samples=50; lr=0.001 (1-shot), lr=0.09 (25-shot).
 Note: uses raw (un-normalized) features — normalization interferes with softmax loss.
 
 Changes vs original Embedded-CL:

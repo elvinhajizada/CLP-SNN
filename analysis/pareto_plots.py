@@ -76,7 +76,7 @@ ACCURACY_25SHOT = {
     "CLP-SNN": 90.0,
     "CLP": 93.0,
     "NCM": 84.5,
-    "Replay": 91.6,
+    "Replay": 90.8,
     "SLDA": 96.2,
 }
 

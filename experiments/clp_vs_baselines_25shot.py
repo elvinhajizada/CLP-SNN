@@ -39,7 +39,7 @@ if str(_REPO) not in sys.path:
 from models.CLP import ContinuallyLearningPrototypes  # noqa: E402
 from models.CLP_SNN_Loihi import CLPSNNLoihi  # noqa: E402
 from models.clp_snn_configs import LOIHI_CONFIGS  # noqa: E402
-from models.SLDA import StreamingLDA  # noqa: E402
+from models.SLDA import StreamingLDA, RankOneSLDA  # noqa: E402
 from models.NCM import NearestClassMean  # noqa: E402
 from models.Replay import StreamingSoftmax  # noqa: E402
 from models.Perceptron import Perceptron  # noqa: E402
@@ -191,7 +191,7 @@ def load_train_split(seed: int):
 
 VARIANTS = [
     "Perceptron",
-    "Fine Tuning",
+    "Fine-tuning",
     "NCM",
     "Replay",
     "SLDA",
@@ -206,7 +206,7 @@ def build_classifier(name: str):
     if name == "Perceptron":
         return Perceptron(FEATURE_SIZE, NUM_CLASSES, backbone=None, device=d)
 
-    elif name == "Fine Tuning":
+    elif name == "Fine-tuning":
         return StreamingSoftmax(
             FEATURE_SIZE, NUM_CLASSES, use_replay=False,
             backbone=None, lr=0.003, weight_decay=1e-5, device=d,
@@ -223,9 +223,10 @@ def build_classifier(name: str):
         )
 
     elif name == "SLDA":
-        return StreamingLDA(
-            FEATURE_SIZE, NUM_CLASSES, backbone=None,
-            shrinkage_param=1e-4, streaming_update_sigma=True, device=d,
+        # the paper's SLDA baseline: exact rank-one precision maintenance,
+        # fixed ridge lambda = 1 (experiments/slda_regularization_equivalence.py)
+        return RankOneSLDA(
+            FEATURE_SIZE, NUM_CLASSES, backbone=None, ridge_param=1.0, device=d,
         )
 
     elif name == "SLDA (Frozen Σ)":
@@ -285,6 +286,11 @@ def main():
 
         for c, name in enumerate(VARIANTS):
             print(f"  [{c+1}/{len(VARIANTS)}] {name}...", end=" ", flush=True)
+            # Seed every run on its own, so that each (method, class order) result
+            # depends only on that pair and not on the methods run before it.
+            np.random.seed(seed)
+            random.seed(seed)
+            torch.manual_seed(seed)
             clf = build_classifier(name)
             use_raw = (name == "Replay")
             X_train = X_tr_raw if use_raw else X_tr

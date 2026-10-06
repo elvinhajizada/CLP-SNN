@@ -104,7 +104,7 @@ CLASSIFIER_COLORS = [
 CLASSIFIER_LINESTYLES = ["-", "-", "-", "-", "--", ":", "-", "-."]
 CLASSIFIER_DISPLAY_NAMES = [
     "Perceptron",
-    "Fine Tuning",
+    "Fine-tuning",
     "NCM",
     "Replay",
     "SLDA",
@@ -124,7 +124,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from models.CLP import ContinuallyLearningPrototypes
 from models.CLP_SNN_Loihi import CLPSNNLoihi
 from models.clp_snn_configs import LOIHI_CONFIGS  # noqa: E402
-from models.SLDA import StreamingLDA
+from models.SLDA import StreamingLDA, RankOneSLDA
 from models.NCM import NearestClassMean
 from models.Replay import StreamingSoftmax
 from models.Perceptron import Perceptron
@@ -227,12 +227,13 @@ def instantiate_classifier(
         If classifier_type is unknown
     """
     if classifier_type == "slda":
-        return StreamingLDA(
+        # the paper's SLDA baseline: exact rank-one precision maintenance,
+        # fixed ridge lambda = 1 (experiments/slda_regularization_equivalence.py)
+        return RankOneSLDA(
             feature_size,
             num_classes,
             backbone=None,
-            shrinkage_param=1e-4,
-            streaming_update_sigma=True,
+            ridge_param=1.0,
             device=device,
         )
 
@@ -365,6 +366,11 @@ def run_1shot_experiment() -> Tuple[np.ndarray, np.ndarray]:
         for c, classifier_type in enumerate(CLASSIFIER_TYPES):
             print(f"  [{c+1}/{len(CLASSIFIER_TYPES)}] {classifier_type}...", end=" ", flush=True)
 
+            # Seed every run on its own, so that each (method, class order) result
+            # depends only on that pair and not on the methods run before it.
+            np.random.seed(seed)
+            random.seed(seed)
+            torch.manual_seed(seed)
             classifier = instantiate_classifier(
                 classifier_type, FEATURE_SIZE, NUM_CLASSES, DEVICE
             )
@@ -595,7 +601,7 @@ def plot_forgetting_metrics_combined(
 
     ct_labels = [
         "Perceptron",
-        "Fine Tuning",
+        "Fine-tuning",
         "NCM",
         "Replay",
         "SLDA",
@@ -728,7 +734,7 @@ def plot_forgetting_metrics_bar_chart(fm_mean: np.ndarray, fm_std: np.ndarray) -
     """Plot True-Peak FM as a bar chart for all 8 classifiers."""
     ct_labels = [
         "Perceptron",
-        "Fine Tuning",
+        "Fine-tuning",
         "NCM",
         "Replay",
         "SLDA",
