@@ -1,11 +1,13 @@
 """
 Self-normalization analysis: similarity to cluster center across dimensions.
 
-Generates Supplemental Fig. S1: a 3-row × 4-column grid showing
+Generates Supplementary Fig. S2: a 3-row × 4-column grid showing
   Row 0 — similarity of learned prototype to cluster center
   Row 1 — weight-vector norm ‖w‖
   Row 2 — raw dot product w·center
-across three synthetic dimensions (d = 64, 256, 1280) and one OpenLoris column.
+across three synthetic dimensions (d = 64, 256, 1280) and one OpenLoris column
+(class 13, frames with cosine >= 0.75 to the class centre, matching the synthetic
+clusters' spread and CLP's allocation threshold).
 
 Three learning-rule variants are compared:
   A — CLP:              Hebbian update + explicit L2 renorm
@@ -37,7 +39,8 @@ SEED = 0
 ALPHA_MIN = 0
 G_INC = 0.5
 TARGET_MIN_SIM = 0.75
-OL_CLASS = 0
+OL_CLASS = 13
+OL_SIM_THRESHOLD = 0.75   # keep frames within the synthetic clusters' spread
 OL_SEEDS = [10, 20, 30]
 
 plt.rcParams.update({
@@ -210,10 +213,11 @@ def run_with_center_similarity(
     }
 
 
-# ── Load OpenLoris class OL_CLASS (pool across OL_SEEDS) ──────────────────────
+# ── Load OpenLoris class OL_CLASS (pool across OL_SEEDS, filter by OL_SIM_THRESHOLD) ──
 
 def load_openloris_class(cls: int = OL_CLASS, seeds: list = OL_SEEDS) -> np.ndarray | None:
-    """Pool 1-shot training frames for `cls` across seeds; return L2-normalized array."""
+    """Pool 1-shot training frames for `cls` across seeds; return the L2-normalized frames
+    whose cosine similarity to the class centre is at least OL_SIM_THRESHOLD."""
     chunks = []
     for seed in seeds:
         pt = DATA_DIR / f"X_train_1_shot_{seed}.pt"
@@ -228,7 +232,10 @@ def load_openloris_class(cls: int = OL_CLASS, seeds: list = OL_SEEDS) -> np.ndar
             chunks.append(Xc / np.where(norms > 0, norms, 1.0))
     if not chunks:
         return None
-    return np.concatenate(chunks, axis=0)
+    samples = np.concatenate(chunks, axis=0)
+    centre = samples.mean(axis=0)
+    centre /= np.linalg.norm(centre)
+    return samples[samples @ centre >= OL_SIM_THRESHOLD]
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -256,7 +263,7 @@ def main():
             samples, alpha_min=ALPHA_MIN, rng_seed=SEED, g_inc=G_INC)
         print(f"  d={dim}: done")
 
-    print("\nPhase 3: OpenLoris class {OL_CLASS}...")
+    print(f"\nPhase 3: OpenLoris class {OL_CLASS}...")
     ol_samples = load_openloris_class(OL_CLASS, OL_SEEDS)
     ol_result = None
     if ol_samples is not None and len(ol_samples) > 1:
