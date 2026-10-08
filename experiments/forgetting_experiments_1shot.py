@@ -638,15 +638,15 @@ def plot_forgetting_metrics_combined(
         error_kw=dict(elinewidth=0.75, ecolor="black"),
     )
     # Annotate each FM bar with mean only (no std labels)
-    for i, val in enumerate(fm_mean_filtered):
-        y_pos = val + 0.025
+    for i, (val, std) in enumerate(zip(fm_mean_filtered, fm_std_filtered)):
+        y_pos = val + std + 0.02  # above the error bar
         ax.text(
             x[i],
             y_pos,
             f"{val:.2f}",
             ha="center",
             va="bottom",
-            fontsize=6,
+            fontsize=6.5,
             color="black",
         )
     y_hi_fm = float(fm_mean_filtered.max())
@@ -673,15 +673,15 @@ def plot_forgetting_metrics_combined(
         interpolation="nearest",
     )
     ax.set_yticks(np.arange(len(ct_labels)))
-    ax.set_yticklabels(ct_labels, fontsize=6)
+    ax.set_yticklabels(ct_labels, fontsize=6.5)
     ax.set_xticks(np.arange(0, N, 4))
-    ax.set_xticklabels(np.arange(1, N + 1, 4), fontsize=6)
+    ax.set_xticklabels(np.arange(1, N + 1, 4), fontsize=6.5)
     ax.set_xlabel("Class (introduction order)", fontsize=7)
     ax.set_title("Per-Class Drop\n(peak − final)", fontsize=7)
 
     cbar = fig.colorbar(im, ax=ax, orientation="vertical", fraction=0.03, pad=0.02)
-    cbar.ax.tick_params(labelsize=5.5)
-    cbar.set_label("Δ acc", fontsize=6)
+    cbar.ax.tick_params(labelsize=6.5)
+    cbar.set_label("Δ acc", fontsize=7)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Panel 3: Temporal Forgetting Metric Curve
@@ -709,7 +709,9 @@ def plot_forgetting_metrics_combined(
         )
 
     ax.axhline(0, color="black", linewidth=0.6, linestyle="--", alpha=0.5)
-    ax.legend(loc="upper right", frameon=False, ncol=1, fontsize=5.5)
+    # Legend in the empty upper band, clear of the curves
+    ax.set_ylim(-0.1, 1.0)
+    ax.legend(loc="upper left", frameon=False, ncol=2, fontsize=6.5, columnspacing=1.0, handlelength=1.8)
     ax.set_xlabel("# Classes Seen", fontsize=7)
     ax.set_ylabel("Forgetting Metric", fontsize=7)
     ax.set_title("Temporal Forgetting Metric\n(evolution over learning)", fontsize=7)
@@ -718,7 +720,7 @@ def plot_forgetting_metrics_combined(
     ax.tick_params(axis="x", labelsize=6.5)
     ax.tick_params(axis="y", labelsize=6.5)
 
-    plt.tight_layout(pad=0.4, w_pad=0.3)
+    plt.tight_layout(pad=0.4, w_pad=1.5)  # room between the colorbar label and panel c
 
     # Panel letters, as cited in the Supplementary Fig. caption
     for ax, letter in zip(axes, "abc"):
