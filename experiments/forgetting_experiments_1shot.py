@@ -719,6 +719,12 @@ def plot_forgetting_metrics_combined(
     ax.tick_params(axis="y", labelsize=6.5)
 
     plt.tight_layout(pad=0.4, w_pad=0.3)
+
+    # Panel letters, as cited in the Supplementary Fig. caption
+    for ax, letter in zip(axes, "abc"):
+        bbox = ax.get_position()
+        fig.text(bbox.x0 - 0.05, bbox.y1 + 0.07, letter, fontsize=9, fontweight="bold", va="bottom")
+
     if SAVE_PDF:
         plt.savefig(
             IMAGES_DIR / "forgetting_metrics_combined_1shot.pdf", format="pdf", bbox_inches="tight"
