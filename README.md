@@ -27,8 +27,8 @@ CLP-SNN is a spiking neural network for online continual learning, featuring a s
 | `experiments/forgetting_experiments_1shot.py` | True-Peak FM forgetting analysis | Results Fig. 4 |
 | `experiments/clp_snn_gap_decomposition.py` | Sources of the accuracy gap between CLP and CLP-SNN on Loihi 2 | Supplemental |
 | `experiments/clp_snn_threshold_g_inc_sweep.py` | Threshold / g_inc hyperparameter sweep | Supplemental |
-| `notebooks/` | Companion notebooks reproducing all paper figures | — |
-| `analysis/` | Self-normalization and quantization analysis scripts | Supplemental Figs. S1–S2 |
+| `notebooks/` | Companion notebooks that walk through the experiments; the scripts in this table produce the paper figures | — |
+| `analysis/` | Accuracy and cost panels, self-normalization analysis scripts | Results Fig. 3, Supplemental Figs. S2–S3 |
 | `benchmarks/benchmark.py` | Latency/energy benchmarking on Jetson Orin Nano | Results Table 1 |
 | `data/` | Pre-extracted OpenLORIS features (EfficientNet-B0, 1280-dim, L2-normalized) | — |
 
