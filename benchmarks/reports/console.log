@@ -263,11 +263,11 @@ SUCCESS: ncm (FP32) on cpu
 --compile: raising warmup from 20 to 50 samples (compilation + CUDA Graph capture)
 Warming up fit (50 samples)...
 Traceback (most recent call last):
-  File "/lecampos/CLP-SNN/benchmarks/benchmark.py", line 476, in <module>
+  File "/<user>/CLP-SNN/benchmarks/benchmark.py", line 476, in <module>
     warmup(op_fn, phase)
-  File "/lecampos/CLP-SNN/benchmarks/benchmark.py", line 318, in warmup
+  File "/<user>/CLP-SNN/benchmarks/benchmark.py", line 318, in warmup
     op_fn(x, y, idx)
-  File "/lecampos/CLP-SNN/benchmarks/benchmark.py", line 296, in fit_op
+  File "/<user>/CLP-SNN/benchmarks/benchmark.py", line 296, in fit_op
     classifier.fit(x.view(feature_size,), y.view(1,), idx)
   File "/usr/local/lib/python3.10/dist-packages/torch/_dynamo/eval_frame.py", line 433, in _fn
     return fn(*args, **kwargs)

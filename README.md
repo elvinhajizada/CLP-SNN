@@ -2,8 +2,7 @@
 
 Code release for the paper:
 
-> **Online Continual Learning on Intel Loihi 2 via a Co-designed Spiking Neural Network**  
-> https://arxiv.org/abs/2511.01553
+> **Online Continual Learning on Intel Loihi 2 via a Co-designed Spiking Neural Network**
 
 CLP-SNN is a spiking neural network for online continual learning, featuring a self-normalizing three-factor local learning rule, neurogenesis, and metaplasticity — implemented on Intel's Loihi 2 neuromorphic chip and benchmarked against an NVIDIA Jetson Orin Nano GPU.
 
@@ -51,29 +50,13 @@ pip install -r requirements.txt
 
 > **The dataset is NOT included in GitHub's "Download ZIP".**
 > Files under `data/` are tracked with [git-lfs](https://git-lfs.com);
-> Use one of the options below to obtain the real ~1.2 GB feature dataset.
+> Download it as below (anonymized link for peer review).
 
-**For peer review: download from the anonymized OSF link (no git-lfs required).**
 Download `clp_snn_openloris_features.zip` (1.14 GB, MD5 `066e5df76f1080197584454df7f2d549`) from
 [this view-only link](https://osf.io/bty67/overview?view_only=5092dcdc02304641afbc0b52a20b65b1)
-and unzip it into `data/` as in Option 1.
-
-**Option 1 — Download from Zenodo (no git-lfs required).**
-Download `clp_snn_openloris_features.zip` from the Zenodo record
-[DOI: 10.5281/zenodo.20492557](https://doi.org/10.5281/zenodo.20492557)
 and unzip it into `data/` (`unzip clp_snn_openloris_features.zip -d data`), so the files land in
-`data/1shot/`, `data/25shot/`, `data/X_test.npy`, etc.
-
-**Option 2 — Clone with git-lfs.**
-Install [git-lfs](https://git-lfs.com) once per machine, then clone the repo:
-
-```bash
-git lfs install
-git clone https://github.com/elvinhajizada/CLP-SNN.git
-```
-
-If you already cloned the repo *without* LFS, run `git lfs pull` from inside
-the clone to fetch the missing data.
+`data/1shot/`, `data/25shot/`, `data/X_test.npy`, etc. The small files under `data/loihi2/` are
+already in the repository.
 
 ### Contents of `data/`
 
@@ -229,11 +212,4 @@ The Loihi 2 on-chip implementation of CLP-SNN requires access to Intel's proprie
 
 ## Citation
 
-```bibtex
-@article{hajizada2026continual,
-  title={Online Continual Learning on Intel Loihi 2 via a Co-designed Spiking Neural Network},
-  author={Hajizada, Elvin and Rager, Danielle and Shea, Timothy and Campos-Macias, Leobardo and Wild, Andreas and H{\"u}llermeier, Eyke and Sandamirskaya, Yulia and Davies, Mike},
-  journal={arXiv preprint arXiv:2511.01553},
-  year={2026}
-}
-```
+Citation details will be added after peer review.

@@ -277,7 +277,7 @@ if args.compile:
 if args.logs_path is not None:
     logs_path = args.logs_path
 elif DEVICE == 'atom':
-    logs_path = '/home/atom-01-gdc/ai.ncl.jetson-benchmarks/clp/reports/'
+    logs_path = '/home/<user>/ai.ncl.jetson-benchmarks/clp/reports/'
 else:
     logs_path = '/clp/reports/'
 

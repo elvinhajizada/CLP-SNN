@@ -187,7 +187,7 @@ class CLPSNN(nn.Module):
     """
     CLP-SNN: Continual Learning with Prototypes for Spiking Neural Networks.
 
-    Implements the algorithm from arXiv:2511.01553 in software, simulating the
+    Implements the algorithm from the accompanying paper in software, simulating the
     Loihi 2 neuromorphic hardware behaviour at the algorithmic level.
 
     Parameters
