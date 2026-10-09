@@ -11,6 +11,8 @@ tracking: similarity to center, norm evolution, and raw dot products.
 This demonstrates how quantization variants respond to different cluster tightness.
 """
 
+from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
@@ -201,6 +203,13 @@ SIGMAS = {
     "Large":      0.100,   # Large spread
 }
 
+# Per-sigma seed offsets. The original code used hash(sigma_label) % 100, which Python
+# randomises per process; these are the values that reproduce the published Supplementary
+# Fig. S3 curve for curve.
+CLUSTER_SEED_OFFSET = {"Very Tight": 23, "Tight": 70, "Medium": 8, "Large": 5}
+
+IMAGES_DIR = Path(__file__).resolve().parent.parent / "images"
+
 # ── Main execution ────────────────────────────────────────────────────────────
 
 print("=" * 80)
@@ -216,7 +225,7 @@ for dim in DIMENSIONS:
         print(f"\n[Dimension {dim}, Sigma: {sigma_label} ({sigma:.3f})]", end=" ", flush=True)
         
         # Generate cluster
-        rng = np.random.default_rng(SEED + dim + hash(sigma_label) % 100)
+        rng = np.random.default_rng(SEED + dim + CLUSTER_SEED_OFFSET[sigma_label])
         init_centre = rng.standard_normal(dim)
         init_centre /= np.linalg.norm(init_centre)
         samples = init_centre + sigma * rng.standard_normal((N_SYNTH + 1, dim))
@@ -374,10 +383,10 @@ for col_idx, dim in enumerate(DIMENSIONS):
     ax.set_ylabel("w · center", fontsize=7)
     ax.grid(True, alpha=0.2, linewidth=0.5)
 
-fig.suptitle("Sigma Sensitivity Analysis: Synthetic Data", fontsize=13, fontweight="bold")
+# No suptitle: the caption names the analysis
 plt.tight_layout(pad=1.0)
-plt.savefig("sigma_sensitivity_analysis.pdf", format="pdf", bbox_inches="tight", dpi=600)
-plt.savefig("sigma_sensitivity_analysis.png", format="png", bbox_inches="tight", dpi=600)
+plt.savefig(IMAGES_DIR / "sigma_sensitivity_analysis.pdf", format="pdf", bbox_inches="tight", dpi=600)
+plt.savefig(IMAGES_DIR / "sigma_sensitivity_analysis.png", format="png", bbox_inches="tight", dpi=600)
 print("\n[OK] Saved: sigma_sensitivity_analysis.pdf (7.087 inch width)")
 
 plt.show()

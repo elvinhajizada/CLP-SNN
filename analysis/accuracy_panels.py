@@ -87,24 +87,24 @@ def plot():
     fig, (ax1, ax2) = plt.subplots(figsize=(7.087, 3.54), ncols=2, nrows=1)
     fig.patch.set_alpha(0.0)
 
-    m1 = acc1.mean(axis=2)[1:]                      # steps 2..40
+    m1 = 100 * acc1.mean(axis=2)[1:]                # steps 2..40, percent as in Fig. 3c-d
     t1 = np.arange(2, 41)
-    m25 = np.vstack([np.zeros((1, acc25.shape[1])), acc25.mean(axis=2)])  # shot 0..25
+    m25 = 100 * np.vstack([np.zeros((1, acc25.shape[1])), acc25.mean(axis=2)])  # shot 0..25
     t25 = np.arange(0, acc25.shape[0] + 1)
 
     for i, (label, colour, ls, lw) in enumerate(STYLE):
         ax1.plot(t1, m1[:, i], color=colour, label=label, linewidth=lw, linestyle=ls, alpha=0.9)
         ax2.plot(t25, m25[:, i], color=colour, label=label, linewidth=lw, linestyle=ls, alpha=0.9)
 
-    ax1.set_xlabel("Incremental Learning Step \n (# of Classes Seen)")
-    ax1.set_ylabel("Accuracy")
-    ax1.set_ylim([0.2, 1])
+    ax1.set_xlabel("Incremental learning step\n(classes seen)")
+    ax1.set_ylabel("Accuracy (%)")
+    ax1.set_ylim([20, 100])
     ax1.set_xlim([1.8, 40.2])
     ax1.set_xticks(t1[::4])
 
-    ax2.set_xlabel("Incremental Learning Step \n (# of shots)")
-    ax2.set_ylabel("Accuracy")
-    ax2.set_ylim([0, 1])
+    ax2.set_xlabel("Incremental learning step\n(shots seen)")
+    ax2.set_ylabel("Accuracy (%)")
+    ax2.set_ylim([0, 100])
     ax2.set_xlim([0, t25[-1] + 0.1])
     ax2.set_xticks(t25[0::5])
     ax2.tick_params(axis="x", which="major", length=5, width=1, direction="in", labelsize=7)

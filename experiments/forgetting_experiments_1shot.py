@@ -999,12 +999,7 @@ def plot_per_class_accuracy_heatmap(
     cbar.ax.tick_params(labelsize=6)
     cbar.set_label("Accuracy R[t, j]", fontsize=6)
 
-    fig.suptitle(
-        "Per-class accuracy evolution R[t,j] (seed-averaged)\n"
-        "Black line = introduction step  |  green = high acc,  yellow = moderate,  red = low/forgotten",
-        fontsize=7,
-        y=1.02,
-    )
+    # No suptitle: the caption (main-text Fig. 4) explains the heatmaps and the diagonal
 
     if SAVE_PDF:
         plt.savefig(IMAGES_DIR / "per_class_acc_heatmap_1shot.pdf", format="pdf", bbox_inches="tight")

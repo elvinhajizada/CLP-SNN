@@ -197,6 +197,10 @@ def run_25shot(clf, X_tr, y_tr, checkpoints, X_test, y_test):
 
 # ── Supplementary panel ───────────────────────────────────────────────────────
 
+# Legend names as in the Supplementary Fig. S5 caption
+MODEL_LABELS = {"Hayes-SLDA": "Reference", "RankOne-SLDA": "Rank-one"}
+
+
 def draw_panel(lams, accs_, best_lambda, curves, protocols, models, images_dir):
     """Panel (a): lambda sweep on the held-out order; (b), (c): accuracy
     trajectories of both parameterizations under the paper protocols."""
@@ -205,18 +209,19 @@ def draw_panel(lams, accs_, best_lambda, curves, protocols, models, images_dir):
     axes = np.atleast_1d(axes)
 
     ax = axes[0]
+    accs_ = [a * 100 for a in accs_]  # percent, as in the caption and Table 1
     ax.semilogx(lams, accs_, "o-", color="tab:blue", markersize=3)
     ax.axvline(best_lambda, color="tab:red", linestyle=":", linewidth=0.75)
     # Fixed 10-pp window: the sweep spans ~0.2 pp, and an auto-scaled axis
     # would inflate that into an apparent trend.
-    centre = round(float(np.mean(accs_)), 2)
-    ax.set_ylim(centre - 0.05, centre + 0.05)
-    spread_pp = (max(accs_) - min(accs_)) * 100
+    centre = round(float(np.mean(accs_)))
+    ax.set_ylim(centre - 5, centre + 5)
+    spread_pp = max(accs_) - min(accs_)
     ax.text(0.03, 0.95, f"spread {spread_pp:.1f} pp", transform=ax.transAxes,
             ha="left", va="top")
     ax.set_xlabel(r"ridge $\lambda$")
-    ax.set_ylabel("Final accuracy (held-out order)")
-    ax.set_title("(a) $\\lambda$ selection")
+    ax.set_ylabel("Final accuracy (%)")
+    ax.set_title("$\\lambda$ selection (held-out order)")
 
     for k, protocol in enumerate(protocols):
         ax = axes[1 + k]
@@ -224,18 +229,21 @@ def draw_panel(lams, accs_, best_lambda, curves, protocols, models, images_dir):
         t = np.arange(1, n_ck + 1)
         for m, color, ls in zip(models, ["tab:orange", "tab:blue"],
                                 ["-", "--"]):
-            mean = curves[(protocol, m)].mean(axis=1)
-            std = curves[(protocol, m)].std(axis=1)
-            ax.plot(t, mean, ls, color=color, label=f"{m}: "
-                    f"{mean[-1]*100:.1f}$\\pm${std[-1]*100:.1f}%")
+            mean = curves[(protocol, m)].mean(axis=1) * 100
+            std = curves[(protocol, m)].std(axis=1) * 100
+            ax.plot(t, mean, ls, color=color, label=f"{MODEL_LABELS[m]}: "
+                    f"{mean[-1]:.1f}$\\pm${std[-1]:.1f}%")
             ax.fill_between(t, mean - std, mean + std, color=color, alpha=0.15)
-        ax.set_xlabel("Classes seen" if protocol == "1shot"
-                      else "Instance round")
-        ax.set_ylabel("Accuracy")
-        ax.set_title(f"({chr(98 + k)}) {protocol} protocol")
-        ax.legend(frameon=False, loc="lower right")
+        ax.set_xlabel("Classes seen" if protocol == "1shot" else "Shots seen")
+        ax.set_ylabel("Accuracy (%)")
+        ax.set_title("1-shot protocol" if protocol == "1shot" else "25-shot protocol")
+        # Legend where the curves are not: top right for the falling 1-shot curves
+        ax.legend(frameon=False, loc="upper right" if protocol == "1shot" else "lower right")
 
     plt.tight_layout()
+    for ax, letter in zip(axes, "abc"):
+        bbox = ax.get_position()
+        fig.text(bbox.x0 - 0.06, bbox.y1 + 0.04, letter, fontsize=9, fontweight="bold", va="bottom")
     for ext in (("pdf", "png") if SAVE_PDF else ("png",)):
         for out_dir in (RESULTS_DIR, images_dir):
             plt.savefig(out_dir / f"ea_equivalence_panel.{ext}",

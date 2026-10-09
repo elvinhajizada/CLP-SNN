@@ -286,7 +286,7 @@ def main():
                 ("raw_sim_A", "raw_sim_B", "raw_sim_F")]
     row_ylims = [(0.5, 1.0), (0.8, 1.2), None]
     col_titles_synth = [f"d = {d}" for d in DIMENSIONS]
-    col_title_ol = f"OpenLoris (d=1280)"
+    col_title_ol = "OpenLORIS (d = 1280)"
 
     for row, (keys, ylim_hint, ylabel) in enumerate(zip(row_keys, row_ylims, row_labels)):
         kA, kB, kF = keys
@@ -342,11 +342,7 @@ def main():
         ax.set_ylabel(ylabel, fontsize=7)
         ax.grid(True, alpha=0.2, linewidth=0.5)
 
-    fig.suptitle(
-        "Similarity to Cluster Center, Norm & Raw Dot Product\n"
-        f"(target min_sim={TARGET_MIN_SIM}, g_inc={G_INC}, α_min={ALPHA_MIN})",
-        fontsize=7, fontweight="bold",
-    )
+    # No suptitle: the caption states what the rows show and the settings used
     plt.tight_layout(pad=0.6, h_pad=1.0, w_pad=0.5)
 
     stem = IMAGES_DIR / "self_norm_analysis"
