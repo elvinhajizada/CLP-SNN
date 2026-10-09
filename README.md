@@ -53,11 +53,6 @@ pip install -r requirements.txt
 > Files under `data/` are tracked with [git-lfs](https://git-lfs.com);
 > Use one of the options below to obtain the real ~1.2 GB feature dataset.
 
-**For peer review: download from the anonymized OSF link (no git-lfs required).**
-Download `clp_snn_openloris_features.zip` (1.14 GB, MD5 `066e5df76f1080197584454df7f2d549`) from
-[this view-only link](https://osf.io/bty67/overview?view_only=5092dcdc02304641afbc0b52a20b65b1)
-and unzip it into `data/` as in Option 1.
-
 **Option 1 — Download from Zenodo (no git-lfs required).**
 Download `clp_snn_openloris_features.zip` from the Zenodo record
 [DOI: 10.5281/zenodo.20492557](https://doi.org/10.5281/zenodo.20492557)
