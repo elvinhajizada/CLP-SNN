@@ -51,13 +51,18 @@ pip install -r requirements.txt
 
 > **The dataset is NOT included in GitHub's "Download ZIP".**
 > Files under `data/` are tracked with [git-lfs](https://git-lfs.com);
-> Use one of the two options below to obtain the real ~1.2 GB feature dataset.
+> Use one of the options below to obtain the real ~1.2 GB feature dataset.
+
+**For peer review: download from the anonymized OSF link (no git-lfs required).**
+Download `clp_snn_openloris_features.zip` (1.14 GB, MD5 `066e5df76f1080197584454df7f2d549`) from
+[this view-only link](https://osf.io/bty67/overview?view_only=5092dcdc02304641afbc0b52a20b65b1)
+and unzip it into `data/` as in Option 1.
 
 **Option 1 — Download from Zenodo (no git-lfs required).**
 Download `clp_snn_openloris_features.zip` from the Zenodo record
 [DOI: 10.5281/zenodo.20492557](https://doi.org/10.5281/zenodo.20492557)
-and unzip it at the repo root so its contents land under `data/`
-(`data/1shot/`, `data/25shot/`, `data/X_test.npy`, etc.).
+and unzip it into `data/` (`unzip clp_snn_openloris_features.zip -d data`), so the files land in
+`data/1shot/`, `data/25shot/`, `data/X_test.npy`, etc.
 
 **Option 2 — Clone with git-lfs.**
 Install [git-lfs](https://git-lfs.com) once per machine, then clone the repo:
@@ -80,7 +85,7 @@ the clone to fetch the missing data.
 | `data/1shot/y_train_1_shot_{10,20,30}.pt` | Corresponding labels |
 | `data/25shot/X_train_25_shot_{10,20,30}.npy` | 25-shot training sets |
 | `data/25shot/y_train_25_shot_{10,20,30}.npy` | Corresponding labels |
-| `data/X_test.npy` | Test features (60 samples/class, balanced, seed 42) |
+| `data/X_test.npy` | Test feature pool (53,295 features); each experiment script draws its class-balanced test subset at run time |
 | `data/y_test.npy` | Test labels |
 | `data/loihi2/accuracies_clp_loihi_{1shot,25shot}.npy` | CLP-SNN accuracy curves measured on Loihi 2 (checkpoints × 1 × seeds 10/20/30) |
 | `data/loihi2/loihi2_cost_benchmark.csv` | CLP-SNN per-sample OCL step on Loihi 2, aggregated from the on-chip measurement logs (latency, power and energy of the Table 1 benchmark network; power is the Loihi 2 chip power, not full-system power) |
