@@ -27,7 +27,7 @@ Note: the harness starts `tegrastats` **without sudo** (the monitor's
 `docker=True` path). If VDD_IN comes back empty in the sanity run, run the
 python commands with sudo instead.
 
-## CLP re-run (2026-09-11 pass, see `nmi-benchmark-upgrades.md` 3.4b)
+## CLP re-run (2026-09-11 pass)
 
 Only the two CLP lines of `run_openloris_benchmarks.sh` (`clp cuda fp32`,
 `clp cpu fp32`) need re-measuring. Before timing anything, confirm the

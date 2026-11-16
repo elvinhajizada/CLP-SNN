@@ -39,12 +39,6 @@ images/pareto_plots.svg
 images/pareto_plots.png
 images/acc_trend_1shot_baselines.png
 
-# Local planning documents (not for the public repo)
-/nmi-resubmission-action-plan.md
-/nmi-manuscript-integration.md
-/analysis/ocl_cost_analysis.md
-/nmi-benchmark-upgrades.md
-
 # Internal manuscript tooling: number ledger, op counts, allocation replay,
 # AAA study (local only; not part of the release)
 /benchmarks/make_ledger.py
