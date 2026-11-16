@@ -2,8 +2,8 @@
 clp_vs_baselines_1shot.py
 -------------------------
 1-shot OpenLoris continual-learning accuracy comparison of CLP and CLP-SNN
-against six baseline classifiers (Fig. 3a, Table 1 in
-"Real-time Continual Learning on Intel Loihi 2").
+against six baseline classifiers (Fig. 3a, Table 1 in "Online Continual
+Learning on Intel Loihi 2 via a Co-designed Spiking Neural Network").
 
 Protocol:
   * 40 classes x 60 frames per class (pre-balanced), one frame fit at a time.

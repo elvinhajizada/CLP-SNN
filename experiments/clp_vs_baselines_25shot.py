@@ -2,8 +2,8 @@
 clp_vs_baselines_25shot.py
 --------------------------
 25-shot OpenLoris continual-learning comparison of CLP, CLP-SNN, and six
-baseline classifiers (Fig. 3b, Table 1 in
-"Real-time Continual Learning on Intel Loihi 2").
+baseline classifiers (Fig. 3b, Table 1 in "Online Continual Learning on
+Intel Loihi 2 via a Co-designed Spiking Neural Network").
 
 Protocol:
   * 40 classes x 25 shots x ~60 frames/shot ≈ 60,000 training samples.

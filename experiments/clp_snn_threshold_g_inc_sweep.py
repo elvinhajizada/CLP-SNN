@@ -3,8 +3,9 @@ clp_snn_threshold_g_inc_sweep.py
 ---------------------------------
 Parameter sweep of CLP-SNN (float and int variants) across threshold and g_inc.
 
-Investigates whether the observed instability in SNN-int can be mitigated by
-tuning the similarity threshold or goodness-increment decay rate.
+Exploratory: maps how the final accuracy of the adaptive CLP-SNN simulator
+depends on the similarity threshold and the goodness increment. Not used for
+any number in the paper.
 
 Protocol mirrors clp_vs_clp_snn_1shot.py:
   * 40 classes x 60 frames per class (pre-balanced), one frame fit at a time.

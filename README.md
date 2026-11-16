@@ -1,4 +1,4 @@
-# CLP-SNN: Real-time Continual Learning on Intel Loihi 2
+# CLP-SNN: Online Continual Learning on Intel Loihi 2
 
 Code release for the paper:
 
@@ -12,23 +12,27 @@ CLP-SNN is a spiking neural network for online continual learning, featuring a s
 
 | Folder / File | Description | Paper section |
 |---|---|---|
-| `models/CLP_SNN.py` | Main contribution: spiking CLP with float (Taylor) and INT (Lava-faithful) learning paths | Methods §2.1–2.2 |
-| `models/CLP_SNN_Loihi.py` | Emulator of the CLP-SNN deployment on Loihi 2 (allocation-only, integer arithmetic, spike-timing winner) | Results, Supplemental |
+| `models/CLP_SNN.py` | Main contribution: spiking CLP with float (Taylor) and INT (Lava-faithful) learning paths | Methods, "Derivation of the CLP-SNN rule" and "On-chip implementation of the learning rule" |
+| `models/CLP_SNN_Loihi.py` | Emulator of the CLP-SNN deployment on Loihi 2 (allocation-only, integer arithmetic, spike-timing winner) | Supplementary Note 1 |
 | `models/clp_snn_configs.py` | Named CLP-SNN configurations: Loihi 2 deployment parameters and simulator presets | — |
-| `models/CLP.py` | Original CLP baseline | Methods §2.1 |
-| `models/SLDA.py` | Streaming LDA (standard and Frozen Σ variants) | Baselines |
-| `models/NCM.py` | Nearest Class Mean baseline | Baselines |
-| `models/Replay.py` | Streaming softmax + experience replay | Baselines |
-| `models/Perceptron.py` | Perceptron / fine-tuning baseline | Baselines |
-| `experiments/clp_vs_baselines_1shot.py` | 1-shot accuracy comparison: CLP, CLP-SNN, and 6 baselines | Results Fig. 3a, Table 1 |
-| `experiments/clp_vs_baselines_25shot.py` | 25-shot accuracy comparison: same 8 main classifiers | Results Fig. 3b, Table 1 |
-| `experiments/clp_vs_clp_snn_1shot.py` | 1-shot ablation of CLP-SNN float vs INT learning variants | Supplemental |
-| `experiments/forgetting_experiments_1shot.py` | True-Peak FM forgetting analysis | Results Fig. 4 |
-| `experiments/clp_snn_gap_decomposition.py` | Sources of the accuracy gap between CLP and CLP-SNN on Loihi 2 | Supplemental |
-| `experiments/clp_snn_threshold_g_inc_sweep.py` | Threshold / g_inc hyperparameter sweep | Supplemental |
+| `models/CLP.py` | Original CLP baseline | Methods, "Derivation of the CLP-SNN rule" |
+| `models/SLDA.py` | Streaming LDA: exact rank-one implementation (the paper's SLDA baseline), reference implementation and Frozen Σ variant | Methods, "Exact rank-one streaming LDA baseline" |
+| `models/NCM.py` | Nearest Class Mean baseline | Methods, "Experimental framework" |
+| `models/Replay.py` | Streaming softmax + experience replay | Methods, "Experimental framework" |
+| `models/Perceptron.py` | Perceptron / fine-tuning baseline | Methods, "Experimental framework" |
+| `experiments/clp_vs_baselines_1shot.py` | 1-shot accuracy comparison: CLP, CLP-SNN, and 6 baselines | Fig. 3a, Table 1 |
+| `experiments/clp_vs_baselines_25shot.py` | 25-shot accuracy comparison: same 8 main classifiers | Fig. 3b, Table 1 |
+| `experiments/forgetting_experiments_1shot.py` | Forgetting analysis (per-class accuracy retention, True-Peak FM) | Fig. 4, Supplementary Fig. S1 |
+| `experiments/clp_snn_gap_decomposition.py` | Sources of the accuracy gap between CLP and CLP-SNN on Loihi 2 | Supplementary Note 1 |
+| `experiments/clp_snn_hw_comparison.py` | Threshold sweep of CLP and the CLP-SNN simulator (adaptive and imprint-only, FP32 and 8-bit) | Supplementary Note 2 |
+| `experiments/slda_regularization_equivalence.py` | Accuracy equivalence of the rank-one and reference streaming LDA | Supplementary Note 3, Fig. S5 |
+| `experiments/slda_fp16_gate.py` | Streaming LDA with an FP16 covariance state | Supplementary Note 3 |
+| `experiments/clp_vs_clp_snn_1shot.py`, `clp_snn_threshold_g_inc_sweep.py` | Exploratory: 1-shot comparison of the CLP-SNN simulator variants; threshold / g_inc sweep | not in the paper |
+| `experiments/slda_drift_study.py`, `slda_staleness_study.py`, `plot_slda_heldout_trajectory.py` | Exploratory: numerical drift and stale-weight studies of rank-one streaming LDA | not in the paper |
 | `notebooks/` | Companion notebooks that walk through the experiments; the scripts in this table produce the paper figures | — |
-| `analysis/` | Accuracy and cost panels, self-normalization analysis scripts | Results Fig. 3, Supplemental Figs. S2–S3 |
-| `benchmarks/benchmark.py` | Latency/energy benchmarking on Jetson Orin Nano | Results Table 1 |
+| `analysis/` | Accuracy and cost panels, self-normalization analysis scripts | Fig. 3, Supplementary Figs. S2–S3 |
+| `benchmarks/benchmark.py` | Latency/energy benchmarking on Jetson Orin Nano | Table 1 |
+| `tests/` | Parity of the optimized baselines with their pinned earlier versions; CLP-SNN emulator against the Loihi 2 curves; integer learning rule against its numpy reference | — |
 | `data/` | Pre-extracted OpenLORIS features (EfficientNet-B0, 1280-dim, L2-normalized) | — |
 
 ---
@@ -89,17 +93,21 @@ python experiments/clp_vs_baselines_1shot.py
 # 25-shot accuracy comparison: same 8 main classifiers (Fig. 3b, Table 1 25-shot column)
 python experiments/clp_vs_baselines_25shot.py
 
-# CLP-SNN float vs INT learning-rule ablation (Supplemental)
-python experiments/clp_vs_clp_snn_1shot.py
-
-# Forgetting analysis — BWT and True-Peak FM (Fig. 4 / Supplemental)
+# Forgetting analysis (Fig. 4, Supplementary Fig. S1)
 python experiments/forgetting_experiments_1shot.py
 
-# Hyperparameter sweep — threshold vs g_inc (Supplemental)
-python experiments/clp_snn_threshold_g_inc_sweep.py
-
-# Accuracy gap between CLP and CLP-SNN on Loihi 2, factor by factor (Supplemental)
+# Accuracy gap between CLP and CLP-SNN on Loihi 2, factor by factor (Supplementary Note 1)
 python experiments/clp_snn_gap_decomposition.py --sweep
+
+# CLP and the CLP-SNN simulator across similarity thresholds (Supplementary Note 2)
+python experiments/clp_snn_hw_comparison.py
+
+# Rank-one vs reference streaming LDA (Supplementary Note 3, Fig. S5)
+python experiments/slda_regularization_equivalence.py
+
+# Exploratory, not used for any number in the paper
+python experiments/clp_vs_clp_snn_1shot.py            # CLP-SNN simulator variants, 1-shot
+python experiments/clp_snn_threshold_g_inc_sweep.py   # threshold vs g_inc
 ```
 
 Results and figures are saved to `experiments/results/` and `images/` respectively.
@@ -107,6 +115,8 @@ Each script has a `SAVE_PDF = True` flag near the top — set it to `False` to s
 `.pdf` output and save only `.png` (useful on headless servers without a PDF backend).
 
 Companion notebooks in `notebooks/` walk through each experiment interactively.
+
+Tests: `python -m pytest tests` (needs the features in `data/`; a few minutes on a CPU).
 
 ---
 
@@ -140,13 +150,19 @@ Evaluated as on the chip, the emulator reproduces the measured accuracy: 55.4% v
 55.4% (1-shot) and 90.1% vs 90.0% (25-shot), with curve RMSE 0.4 / 0.5 points. Ties
 are broken at random, as on the chip, so single runs vary by a few tenths of a point.
 
+The 25-shot emulator accuracy appears as three values, which differ only in the test
+subset and in the tie-breaking seeds: 90.1% above (the chip's evaluation, a test subset
+drawn per class order; mean of three tie-breaking seeds), 90.4% in the preset table and
+90.5% in the table below (both on the fixed test subset of the experiment scripts, with
+one tie-breaking seed and the mean of three).
+
 `experiments/clp_snn_gap_decomposition.py` adds the features of the deployment to CLP
 one at a time (final accuracy in %, prototypes in parentheses, mean over seeds 10/20/30):
 
 | Configuration | 1-shot | 25-shot |
 |---|---|---|
 | CLP | 57.0 (127) | 93.0 (1,769) |
-| Imprint-only, INT8, CLP's threshold (0.75) | 56.9 (242) | 92.7 (3,673) |
+| Imprint-only, INT8, CLP's threshold (0.75) | 56.9 (242) | 92.8 (3,673) |
 | + chip input preprocessing | 57.2 (210) | 92.5 (3,083) |
 | + chip threshold (0.708 / 0.507) | 55.9 (167) | 90.4 (1,217) |
 | + spike-timing winner selection | 55.4 (168) | 90.5 (1,302) |
@@ -199,6 +215,10 @@ python benchmarks/benchmark.py \
     --device_type orin \
     --compute_device cuda
 ```
+
+The power monitors (`bm_utils`) are not distributed with this repository. From a public
+checkout, `--no-power` re-measures latency; the measurement logs behind the reported
+energy values are in `benchmarks/reports/`.
 
 See `benchmarks/README.md` for full instructions.
 
