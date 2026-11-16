@@ -1,7 +1,8 @@
 """
 Latency and energy benchmarking for OCL algorithms on Jetson Orin Nano.
 
-Reproduces Table 1 hardware measurements from "Real-time Continual Learning on Intel Loihi 2".
+Reproduces Table 1 hardware measurements from "Online Continual Learning on
+Intel Loihi 2 via a Co-designed Spiking Neural Network".
 
 Measurement methodology:
   - GPU latencies via CUDA events (torch.cuda.Event) with end-event sync;
@@ -23,7 +24,8 @@ Measurement methodology:
 
 Requirements (Jetson Orin Nano only):
   - JetPack SDK 6.2.1, PyTorch 2.4.0
-  - bm_utils package (jtop_stats, tegrastats_monitor, reporter, time_stats)
+  - bm_utils package (jtop_stats, tegrastats_monitor, reporter, time_stats);
+    not distributed with this repository, see benchmarks/README.md
   - jtop installed: pip install jetson-stats
 
 Usage:
@@ -134,13 +136,22 @@ elif args.algorithm == 'replay':
 
 DEVICE = args.device_type
 if not args.no_power:
-    if DEVICE == 'atom':
-        from bm_utils.cpu_stats import CPUStats
-    else:
-        from bm_utils.jtop_stats import JTOPStats
-        from bm_utils.tegrastats_monitor import TegraStatsMonitor
-    from bm_utils.reporter import Reporter
-    from bm_utils.time_stats import TimeStats
+    try:
+        if DEVICE == 'atom':
+            from bm_utils.cpu_stats import CPUStats
+        else:
+            from bm_utils.jtop_stats import JTOPStats
+            from bm_utils.tegrastats_monitor import TegraStatsMonitor
+        from bm_utils.reporter import Reporter
+        from bm_utils.time_stats import TimeStats
+    except ImportError as exc:
+        sys.exit(
+            f"Cannot import the power monitors ({exc}).\n"
+            "bm_utils is not distributed with this repository, so power and "
+            "energy cannot be re-measured from a public checkout.\n"
+            "Run with --no-power to measure latency only. The measurement "
+            "logs behind the energy columns of Table 1 are in "
+            "benchmarks/reports/ (see benchmarks/README.md).")
 
 # General parameters for the experiment
 batch_size = 1

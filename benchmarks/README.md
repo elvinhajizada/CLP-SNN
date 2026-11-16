@@ -13,6 +13,15 @@ the step-by-step operator guide (setup, sanity run, full suite, what to send bac
 - `jetson-stats` package: `pip install jetson-stats` (provides `jtop`)
 - `bm_utils` package (timing/power monitors and report writer)
 
+`bm_utils` is internal benchmarking tooling and is not distributed with this
+repository. Without it, `benchmark.py --no-power` re-measures the latency
+columns of Table 1; power and energy cannot be re-measured. The measurement
+logs behind the reported energy values are committed in `benchmarks/reports/`
+and `benchmarks/reports_clp2/` (per-run `time.csv` and `power.csv`).
+`generate_table_results.py --logs_path <reports folder>` rebuilds the table
+sources from them without `bm_utils`, and `splice_clp_rerun.py` merges the
+CLP re-run into `reports_table1.csv`.
+
 ## Quick Start (full Table 1 suite)
 
 ```bash
@@ -48,7 +57,7 @@ python benchmark.py \
   under `<model_name>-qry`.
 - `--dtype fp16` enables half-precision (NCM, naive SLDA, Replay; requires
   `--compute_device cuda`). CLP runs in FP32 only. `slda_rank1` requires FP32
-  state (Sherman-Morrison drift; see the SI drift study). For naive SLDA,
+  state (Sherman-Morrison drift; see `experiments/slda_drift_study.py`). For naive SLDA,
   FP16 applies to the GEMMs only; the Sigma/Lambda/mean statistics stay FP32
   because FP16 accumulation stalls and collapses accuracy (gate:
   `experiments/slda_fp16_gate.py`, FP16-state agreement drops below 2% by the
