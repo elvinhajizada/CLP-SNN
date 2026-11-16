@@ -1,6 +1,6 @@
 """
 Parity tests: benchmark-optimized models vs the pinned pre-optimization
-implementations (git tag `pre-orin-opt`).
+implementations in tests/pinned/.
 
 Every model touched by the pre-Orin optimization pass (RankOneSLDA, NCM, CLP,
 Replay) is run side by side with its pinned version over the real seed-10
@@ -9,12 +9,13 @@ prediction-identical: state tensors must match (bitwise where the arithmetic
 is unchanged, tight tolerance where kernel shapes differ), and argmax
 predictions on the full test set must agree 100%.
 
-The pinned sources are extracted with `git show pre-orin-opt:models/<f>.py`
-into a temp directory at session start, so the reference is exactly what the
-accuracy experiments ran, independent of the working tree.
+The pinned sources are verbatim copies of models/<f>.py at two commits:
+tests/pinned/pre_orin_opt/ (4a0fa77, before the Orin optimization pass) and
+tests/pinned/pre_sync_opt/ (9625cb6, before the single-sync CLP rewrite). The
+reference is therefore exactly what the accuracy experiments ran, independent
+of the working tree and of the git history.
 """
 import importlib.util
-import subprocess
 import sys
 from pathlib import Path
 
@@ -26,7 +27,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 DATA = REPO / "data"
-PIN_TAG = "pre-orin-opt"
+PINNED = Path(__file__).resolve().parent / "pinned"
 
 torch.manual_seed(0)
 
@@ -35,23 +36,20 @@ torch.manual_seed(0)
 # Fixtures
 # ---------------------------------------------------------------------------
 
+def _load_pinned(subdir, fname, module_name):
+    """Import tests/pinned/<subdir>/<fname>.py under a unique module name."""
+    path = PINNED / subdir / f"{fname}.py"
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 @pytest.fixture(scope="session")
-def pinned(tmp_path_factory):
-    """Extract pinned model sources from the git tag and import them under
-    unique module names."""
-    pin_dir = tmp_path_factory.mktemp("pinned_models")
-    modules = {}
-    for fname in ["SLDA", "NCM", "CLP", "Replay"]:
-        src = subprocess.run(
-            ["git", "-C", str(REPO), "show", f"{PIN_TAG}:models/{fname}.py"],
-            capture_output=True, text=True, check=True).stdout
-        path = pin_dir / f"pinned_{fname}.py"
-        path.write_text(src, encoding="utf-8")
-        spec = importlib.util.spec_from_file_location(f"pinned_{fname}", path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        modules[fname] = mod
-    return modules
+def pinned():
+    """Model sources before the Orin optimization pass."""
+    return {fname: _load_pinned("pre_orin_opt", fname, f"pinned_{fname}")
+            for fname in ["SLDA", "NCM", "CLP", "Replay"]}
 
 
 @pytest.fixture(scope="session")
@@ -183,26 +181,15 @@ def test_clp_parity(pinned, stream, cfg):
 
 
 # ---------------------------------------------------------------------------
-# CLP: single-sync fit / scatter-max predict vs the pinned pre-sync-opt tag
-# (the implementation that produced the Phase 3 Orin numbers). Bar: bitwise.
+# CLP: single-sync fit / scatter-max predict vs the pinned source in
+# tests/pinned/pre_sync_opt/ (the implementation before the single-sync
+# rewrite). Bar: bitwise.
 # ---------------------------------------------------------------------------
 
-SYNC_PIN_TAG = "pre-sync-opt"
-
-
 @pytest.fixture(scope="session")
-def pinned_sync(tmp_path_factory):
-    """CLP source at the pre-sync-opt tag, imported under a unique name."""
-    pin_dir = tmp_path_factory.mktemp("pinned_sync_models")
-    src = subprocess.run(
-        ["git", "-C", str(REPO), "show", f"{SYNC_PIN_TAG}:models/CLP.py"],
-        capture_output=True, text=True, check=True).stdout
-    path = pin_dir / "pinned_sync_CLP.py"
-    path.write_text(src, encoding="utf-8")
-    spec = importlib.util.spec_from_file_location("pinned_sync_CLP", path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+def pinned_sync():
+    """CLP source before the single-sync rewrite."""
+    return _load_pinned("pre_sync_opt", "CLP", "pinned_sync_CLP")
 
 
 CLP_BITWISE_CFGS = [

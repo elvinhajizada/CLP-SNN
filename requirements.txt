@@ -17,3 +17,6 @@ pandas>=2.0
 # Notebooks
 jupyter>=1.0
 ipykernel>=6.0
+
+# Tests (python -m pytest tests)
+pytest>=7.0
