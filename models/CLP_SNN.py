@@ -1,6 +1,7 @@
 """
 CLP-SNN: Continual Learning with Prototypes for Spiking Neural Networks
-Code accompanying "Real-time Continual Learning on Intel Loihi 2" (under review).
+Code accompanying "Online Continual Learning on Intel Loihi 2 via a Co-designed
+Spiking Neural Network".
 
 Key properties:
 - Self-normalizing local learning rule: Δw = α·|r|·(r·x − w·y)  where y = wᵀx
@@ -29,7 +30,7 @@ Learning rule has exactly two implementations, selected by `use_quantization`:
             `LearningRuleApplierBitApprox.apply()` in
             `src/lava/magma/core/learning/learning_rule_applier.py`
             (lava repo) for the hardware spec; see
-            `analysis/norm_demo.py::variant_F_step` for the numpy reference.
+            `analysis/int8_rule.py::variant_F_step` for the numpy reference.
 
 Optional extensions (via flags):
 - Pseudo-labeling (use_pseudo_labels): Unlabeled prototypes get negative labels for novelty detection
@@ -200,9 +201,8 @@ class CLPSNN(nn.Module):
         Number of output classes.
     threshold : float
         WTA activation threshold θ.  A prototype only wins if its dot-product
-        similarity exceeds this value.  With zero-initialised weights the first
-        sample of any class always falls below (dot = 0 ≤ 0), triggering
-        allocation.  Default 0.0 matches the paper's threshold check y > θ.
+        similarity exceeds this value (y > θ).  Default 0.75, the similarity
+        threshold of CLP.
     device : str
         Torch device string ('cuda' or 'cpu').
     """
@@ -359,8 +359,9 @@ class CLPSNN(nn.Module):
         winner_indices = [c[0] for c in candidates]
         voted_labels = self.proto_labels[winner_indices]
         
-        # Filter out unlabeled prototypes (label == -1 or < 0 if pseudo-labeled)
-        valid_mask = voted_labels > 0
+        # Filter out unlabeled prototypes (label == -1 or < 0 if pseudo-labeled);
+        # class labels start at 0
+        valid_mask = voted_labels >= 0
         valid_labels = voted_labels[valid_mask]
         valid_indices = [winner_indices[i] for i, m in enumerate(valid_mask) if m]
         
@@ -382,13 +383,11 @@ class CLPSNN(nn.Module):
             # Tie-breaking: random selection among tied labels (matches hardware)
             winning_label = tied_labels[random.randint(0, len(tied_labels) - 1)].item()
         
-        # Return one prototype with winning label (highest similarity among those)
-        winning_proto_indices = [i for i, idx in enumerate(valid_indices) 
+        # Return the most similar prototype with the winning label
+        # (valid_indices keeps the candidates' descending-similarity order)
+        winning_proto_indices = [i for i, idx in enumerate(valid_indices)
                                   if self.proto_labels[idx].item() == winning_label]
         if winning_proto_indices:
-            # Return the highest similarity prototype with winning label
-            best_idx_in_valid = min(winning_proto_indices, 
-                                     key=lambda i: -candidates[sum(1 for m in valid_mask[:winner_indices.index(valid_indices[i])] if m)][1])
             return valid_indices[winning_proto_indices[0]]
         
         return candidates[0][0]
@@ -515,7 +514,7 @@ class CLPSNN(nn.Module):
     def _update_winner_int8(self, winner_idx: int, x: torch.Tensor, r: float) -> None:
         """Lava-faithful bit-approximate integer update ("Variant F" in analysis/).
 
-        Ported from analysis/norm_demo.py::variant_F_step.
+        Ported from analysis/int8_rule.py::variant_F_step.
         Mirrors Lava's LearningRuleApplierBitApprox.apply() 1:1; see
         LearningConnectionModelBitApproximate in connection.py and
         LearningRuleApplierBitApprox.apply() in learning_rule_applier.py

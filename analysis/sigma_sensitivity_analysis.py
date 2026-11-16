@@ -11,6 +11,7 @@ tracking: similarity to center, norm evolution, and raw dot products.
 This demonstrates how quantization variants respond to different cluster tightness.
 """
 
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -18,7 +19,7 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from matplotlib.lines import Line2D
 
-# ── Nature Communications figure configuration ─────────────────────────────
+# ── Figure configuration ─────────────────────────────
 
 plt.rcParams.update({
     "font.family": "sans-serif",
@@ -40,63 +41,10 @@ plt.rcParams.update({
 })
 
 
-# ── Stochastic-rounding helpers (Loihi BitApproximate mechanism) ──────────────
+# ── Variant F: integer rule, shared with self_norm_analysis.py ──────────────
 
-# ── Variant F: faithful Lava BitApproximate mirror ──────────────────────────
-
-_ACC_MAX = (1 << 15) - 1
-_ACC_MIN = -(1 << 15) - 1
-
-
-def variant_F_step(
-    w_int: np.ndarray,
-    x_int: np.ndarray,
-    alpha_int: np.int64,
-    r_int: int,
-    rng: np.random.Generator,
-):
-    """One CLP update step, mirroring Lava's LearningRuleApplierBitApprox."""
-    d = w_int.shape[0]
-
-    # Forward pass: y = w·x quantized to 7-bit
-    y_acc = np.dot(w_int.astype(np.int64), x_int.astype(np.int64))
-    y_int = int(np.clip((y_acc + np.int64(64)) >> 7, -128, 127))
-
-    # Init 15-bit accumulator (w lifted by 7 bits)
-    result = (w_int.astype(np.int32) << 7).astype(np.int32)
-
-    # Product 1: +α · x
-    mac1 = np.ones(d, dtype=np.int32)
-    mac1 *= np.int32(1)
-    mac1 *= np.clip(x_int, -128, 127).astype(np.int32)
-    mac1 *= np.int32(alpha_int)
-    mac1 = np.clip(mac1 * np.int32(r_int), _ACC_MIN, _ACC_MAX)
-    result = np.clip(result + mac1, _ACC_MIN, _ACC_MAX)
-
-    # Product 2: −α · y · w
-    mac2 = np.ones(d, dtype=np.int32)
-    mac2 *= np.int32(1)
-    mac2 *= np.int32(np.clip(y_int, -128, 127))
-    mac2 *= np.clip(w_int.astype(np.int32), -512, 511)
-    mac2 *= np.int32(-alpha_int)
-    mac2 = np.right_shift(mac2, 7)
-    mac2 = np.clip(mac2 * np.int32(r_int), _ACC_MIN, _ACC_MAX)
-    result = np.clip(result + mac2, _ACC_MIN, _ACC_MAX)
-
-    # Single stochastic round (15 → 8 bits), one shared scalar rnd
-    rnd = rng.random()
-    integer = np.floor_divide(result, 128).astype(np.int32)
-    frac = (result - integer * 128).astype(np.float64) / 128.0
-    w_new = integer + (frac > rnd).astype(np.int32)
-    return np.clip(w_new, -128, 127).astype(np.int64), mac1, mac2
-
-
-def quantize_input_int(x: np.ndarray) -> np.ndarray:
-    """L2-normalize → round(x * 128) → INT8 signed [-128, 127]."""
-    n = np.linalg.norm(x)
-    if n > 0:
-        x = x / n
-    return np.clip(np.round(x * 128).astype(np.int64), -128, 127)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from int8_rule import quantize_input_int, variant_F_step  # noqa: E402
 
 
 def run_with_center_similarity(
@@ -144,7 +92,7 @@ def run_with_center_similarity(
         # ── Variant F: faithful Lava BitApprox mirror ────────────────────────
         x_int = quantize_input_int(x)
         alpha_int = np.int64(max(alpha_min, round(128 / g)))
-        w_int_F, _, _ = variant_F_step(w_int_F, x_int, alpha_int, 1, rng_F)
+        w_int_F = variant_F_step(w_int_F, x_int, alpha_int, 1, rng_F)
         
         # ── Compute similarities to cluster center ────────────────────────────
         w_A_unit = w_A / (np.linalg.norm(w_A) + 1e-12)
