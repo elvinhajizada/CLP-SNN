@@ -6,7 +6,7 @@ Emit manuscript LaTeX table bodies from the number ledger CSV (numbers.csv).
 
 Only data rows are produced for table1; its environment, caption and notes
 live in the manuscript. Bold = best per column, underline = second best,
-matching the round-2 table convention. Accuracy columns are constants here
+as in Table 1 of the paper. Accuracy columns are constants here
 (they come from the accuracy experiments, not the Orin harness).
 
 Usage:

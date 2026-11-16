@@ -81,7 +81,8 @@ ACCURACY_25SHOT = {
 }
 
 # CLP-SNN on Loihi 2: one on-chip pass covers scoring and plasticity, so there
-# is no separate query cost to add. Round-2 Table 1, Lava-INL measurement.
+# is no separate query cost to add. Measured on Loihi 2 (Table 1;
+# data/loihi2/loihi2_cost_benchmark.csv).
 LOIHI = dict(method="CLP-SNN", device="Loihi 2", latency_ms=0.33, energy_mj=0.05)
 
 
@@ -200,7 +201,7 @@ def pareto_front(x, y):
 
 
 def _draw_front(ax, x, y, idx):
-    """Connect the non-dominated points with a staircase, as R4 asked.
+    """Connect the non-dominated points with a staircase.
 
     The frontier is the best y attainable at accuracy *at least* x, so it drops
     at each frontier point and runs flat until the next one: vertical first,
